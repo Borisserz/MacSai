@@ -43,14 +43,25 @@ public struct LargeOldFilesModule: ScanModule {
         let items = await scanner.scan(targets: targets)
         let split = Self.splitLargeAndOld(items: items, minSize: minSize)
 
+        return Self.makeResults(large: split.large, old: split.old).filteringUncleanable()
+    }
+
+    /// Pure result builder for testability. Large and old files always require
+    /// explicit user selection before cleaning.
+    ///
+    /// Returns the results *unfiltered*: callers must apply
+    /// `filteringUncleanable()` before showing them (see `scan()`). That step is
+    /// deliberately kept out here so this builder stays pure and can be tested
+    /// with synthetic items that don't exist on disk.
+    internal static func makeResults(large: [FileItem], old: [FileItem]) -> [ScanResult] {
         var results: [ScanResult] = []
-        if !split.large.isEmpty {
-            results.append(ScanResult(category: .largeFiles, items: split.large, autoSelect: false))
+        if !large.isEmpty {
+            results.append(ScanResult(category: .largeFiles, items: large, autoSelect: false))
         }
-        if !split.old.isEmpty {
-            results.append(ScanResult(category: .oldFiles, items: split.old, autoSelect: false))
+        if !old.isEmpty {
+            results.append(ScanResult(category: .oldFiles, items: old, autoSelect: false))
         }
-        return results.filteringUncleanable()
+        return results
     }
 
     /// Pure splitter for testability: classifies file items into "large" and "old"
