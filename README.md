@@ -319,6 +319,36 @@ Mac Sai takes security seriously:
 - **Protected paths** — 27+ Apple system apps and all SIP-protected paths are blocklisted
 - **Open source** — every line of code is auditable
 
+### Verify no telemetry yourself
+
+Don't take our word for it — the source and the running process are both checkable.
+
+**1. Search the source for networking APIs**
+
+```bash
+# Network client APIs used by the app (update check + optional Sparkle appcast fetches
+# for the Updater module). There is no analytics, crash reporter, or tracker SDK.
+rg -n 'URLSession|NSURLConnection' Sources --glob '*.swift'
+```
+
+You should only see networking in:
+
+- `Sources/MacCleanKit/UpdateChecker.swift` — optional Mac Sai update check (Settings → turn off **Automatic update checks**, or never press **Check for Updates**)
+- `Sources/MacClean/Modules/Updater/UpdaterModule.swift` — user-driven scan of *other apps'* Sparkle feeds when you open the Updater module
+
+`URL(string:)` also appears for local deep links (`macclean://…`), System Settings panes, and constant GitHub URLs in `Constants.swift` — those are not outbound telemetry.
+
+**2. Watch the live process**
+
+```bash
+# While Mac Sai is running (and you are not checking for updates / using Updater):
+lsof -i -P -n | grep -i 'MacClean\|Mac Sai\|MacSai' || echo "no network sockets"
+```
+
+Expected: **no established connections** from the main app when you are only cleaning locally. If Automatic update checks are on, you may briefly see one HTTPS request to `api.github.com` after launch — disable that toggle in Settings to silence it.
+
+Third-party tools like Little Snitch or LuLu make the same check visual: allowlist nothing for Mac Sai except the optional GitHub Releases call you choose to enable.
+
 ### Security Audit Checklist
 
 - [x] No command injection vectors (all Process args are hardcoded constants)
