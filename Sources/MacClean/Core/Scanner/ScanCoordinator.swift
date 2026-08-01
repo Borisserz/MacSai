@@ -95,6 +95,7 @@ public final class ScanCoordinator: @unchecked Sendable {
 
                 let start = Date()
                 let rawResults = await module.scan()
+                if Task.isCancelled { break }
                 // Drop items the current process couldn't trash even if it
                 // tried — root-owned children, data-vaulted Apple caches,
                 // stale paths. Users never see them, never click them,

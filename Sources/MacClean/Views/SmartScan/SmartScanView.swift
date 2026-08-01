@@ -11,6 +11,9 @@ struct SmartScanView: View {
     @State private var cleanResults: [ScanResult] = []
     @State private var showCleanConfirm = false
     @State private var cleanTask: Task<Void, Never>?
+    /// Watches `ScanCoordinator` while a Smart Scan runs. Cancelled by
+    /// `cancelScan()` so we stop polling and return to idle promptly (#3).
+    @State private var scanWatchTask: Task<Void, Never>?
     /// Cached selected-size total + a url -> size index backing it, so the
     /// footer reads an O(1) value instead of an O(all-items) sum on every body
     /// pass (the sidebar-switch beachball on large Smart Scans).
@@ -157,7 +160,12 @@ struct SmartScanView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+
+            Button(L10n.tr("取消", "Cancel", "Отмена")) { cancelScan() }
+                .buttonStyle(.bordered)
+                .tint(.primary)
+                .controlSize(.large)
+                .padding(.bottom, 20)
         }
     }
 
@@ -439,8 +447,20 @@ struct SmartScanView: View {
     private func resetScan() {
         cleanTask?.cancel()
         cleanTask = nil
+        scanWatchTask?.cancel()
+        scanWatchTask = nil
         selectedItems = []
         cleanResults = []
+        completedModules = []
+        currentModuleName = ""
+        scanState = .idle
+    }
+
+    /// Abort an in-flight Smart Scan and return to the idle screen (#3).
+    private func cancelScan() {
+        appState.scanCoordinator.cancel()
+        scanWatchTask?.cancel()
+        scanWatchTask = nil
         completedModules = []
         currentModuleName = ""
         scanState = .idle
@@ -469,8 +489,9 @@ struct SmartScanView: View {
     private func startScan() {
         completedModules = []
         currentModuleName = ""
+        scanWatchTask?.cancel()
 
-        Task {
+        scanWatchTask = Task {
             scanState = .scanning(phase: L10n.tr("正在分析系统...", "Analyzing system...", "Анализ системы..."), progress: 0, filesFound: 0, sizeFound: 0)
             appState.scanCoordinator.scanAll()
 
@@ -478,8 +499,9 @@ struct SmartScanView: View {
             var previousFiles = 0
             var previousSize: UInt64 = 0
 
-            while true {
+            while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(80))
+                if Task.isCancelled { return }
 
                 switch appState.scanCoordinator.state {
                 case .scanning(let progress, let module, let files, let size):
@@ -540,6 +562,8 @@ struct SmartScanView: View {
                     return
 
                 case .idle:
+                    // Coordinator starts idle briefly, then moves to .scanning.
+                    // After Cancel it stays idle — exit so we don't spin forever.
                     continue
                 }
             }
