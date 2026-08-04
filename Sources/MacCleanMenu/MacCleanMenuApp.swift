@@ -40,7 +40,7 @@ struct MacCleanMenuApp: App {
     /// macOS automatically tints it to match the current menu bar appearance
     /// (dark in light mode, light in dark mode).
     private static let labelIcon: NSImage = {
-        let img = NSImage(systemSymbolName: "leaf.fill",
+        let img = NSImage(systemSymbolName: "sparkles",
                           accessibilityDescription: "Mac Sai")!
         img.isTemplate = true
         return img
