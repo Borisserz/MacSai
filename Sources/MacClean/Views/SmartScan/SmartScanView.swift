@@ -31,7 +31,7 @@ struct SmartScanView: View {
         case results(cleanup: UInt64, protection: Int, performance: Int, totalSize: UInt64, moduleResults: [ModuleScanResult])
         case empty
         case cleaning(progress: Double)
-        case done(freedSize: UInt64)
+        case done(freedSize: UInt64, breakdown: [SmartScanCleanup.RecentlyCleanedRow])
     }
 
     private static var moduleOrder: [(id: String, name: String, icon: String, group: String)] {
@@ -62,8 +62,8 @@ struct SmartScanView: View {
                 emptyView
             case .cleaning(let progress):
                 cleaningView(progress: progress)
-            case .done(let freedSize):
-                doneView(freedSize: freedSize)
+            case .done(let freedSize, let breakdown):
+                doneView(freedSize: freedSize, breakdown: breakdown)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -369,7 +369,7 @@ struct SmartScanView: View {
         }
     }
 
-    private func doneView(freedSize: UInt64) -> some View {
+    private func doneView(freedSize: UInt64, breakdown: [SmartScanCleanup.RecentlyCleanedRow]) -> some View {
         VStack(spacing: 20) {
             Spacer()
             Image(systemName: "checkmark.circle.fill")
@@ -380,6 +380,36 @@ struct SmartScanView: View {
                 .foregroundStyle(.primary)
             SizeDisplay(size: freedSize, label: L10n.tr("可回收", "ready to reclaim", "можно освободить"))
                 .foregroundStyle(.primary)
+
+            if !breakdown.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L10n.tr("最近清理", "Recently cleaned", "Недавно очищено"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary.opacity(0.55))
+                        .textCase(.uppercase)
+                    ForEach(breakdown, id: \.moduleID) { row in
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.green)
+                            Text(row.moduleName)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(recentlyCleanedDetail(row))
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundStyle(.primary.opacity(0.7))
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: 420)
+                .background(.primary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+
             Text(L10n.tr("你选择的项目已在废纸篓中——需要时可以恢复。若要彻底删除，请打开“废纸篓”模块并清空。", "Your selected items are in the Trash — recover anything you need. To erase them for good, open Trash Bins and empty it.", "Выбранные объекты находятся в Корзине — при необходимости их можно восстановить. Чтобы удалить их окончательно, откройте раздел «Корзины» и очистите корзины."))
                 .font(.system(size: 13))
                 .foregroundStyle(.primary.opacity(0.65))
@@ -392,6 +422,18 @@ struct SmartScanView: View {
             Spacer()
         }
         .padding(.horizontal, 40)
+    }
+
+    private func recentlyCleanedDetail(_ row: SmartScanCleanup.RecentlyCleanedRow) -> String {
+        let size = FileSizeFormatter.format(row.size)
+        if row.itemCount <= 1 {
+            return size
+        }
+        return L10n.tr(
+            "\(size)（\(row.itemCount) 项）",
+            "\(size) (\(row.itemCount) items)",
+            "\(size) (\(row.itemCount) \(L10n.russianPlural(row.itemCount, one: "объект", few: "объекта", many: "объектов")))"
+        )
     }
 
     private func resetScan() {
@@ -505,11 +547,21 @@ struct SmartScanView: View {
     }
 
     private func runCleanup() {
-        // Snapshot selection up-front so the background task can't observe a
-        // later mutation (the state machine moves to .cleaning immediately,
-        // but the explicit copy keeps that guarantee local and obvious).
+        // Snapshot selection + module breakdown up-front so the background
+        // task can't observe a later mutation, and so the done screen can
+        // show what was cleaned per module (#4).
+        let modules: [ModuleScanResult]
+        if case .results(_, _, _, _, let moduleResults) = scanState {
+            modules = moduleResults
+        } else {
+            modules = []
+        }
         let results = cleanResults
         let selection = selectedItems
+        let breakdown = SmartScanCleanup.recentlyCleanedBreakdown(
+            from: modules,
+            selectedItems: selection
+        )
         scanState = .cleaning(progress: 0)
         cleanTask = Task {
             let result = await CleanActions.executeUserClean(
@@ -525,9 +577,7 @@ struct SmartScanView: View {
                     }
                 } }
             )
-            // MVP: surface only freedBytes; result.errors/skippedCount are
-            // reserved for a future detail screen.
-            scanState = .done(freedSize: result.freedBytes)
+            scanState = .done(freedSize: result.freedBytes, breakdown: breakdown)
         }
     }
 }
