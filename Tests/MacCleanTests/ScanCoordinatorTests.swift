@@ -199,6 +199,23 @@ final class ScanCoordinatorTests: XCTestCase {
         }
     }
 
+    /// Issue #3: after Cancel, a slow in-flight module must not flip the
+    /// coordinator to `.completed` once its sleep ends.
+    func testCancelStaysIdleAfterSlowModuleFinishes() async {
+        let c = ScanCoordinator()
+        c.registerModule(FakeModule(id: "slow", name: "Slow", result: [], delay: 0.4))
+        c.scanAll()
+        try? await Task.sleep(for: .milliseconds(50))
+        c.cancel()
+        guard case .idle = c.state else {
+            return XCTFail("Expected idle right after cancel, got \(c.state)")
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+        guard case .idle = c.state else {
+            return XCTFail("Expected idle to stick after cancelled module ends, got \(c.state)")
+        }
+    }
+
     func testEmptyModuleListCompletesImmediately() async {
         let c = ScanCoordinator()
         c.scanAll()

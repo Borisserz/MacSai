@@ -19,6 +19,9 @@ struct DuplicatesView: View {
     @State private var completion: CleanSummary?
     @State private var cleaning: CleaningEngine.Progress?
     @State private var cleanTask: Task<Void, Never>?
+    /// In-flight duplicates scan. Held so Cancel can stop hashing mid-run (#3).
+    @State private var scanTask: Task<Void, Never>?
+    @State private var scanTimerTask: Task<Void, Never>?
     @State private var elapsedSeconds: Int = 0
 
     var body: some View {
@@ -145,6 +148,11 @@ struct DuplicatesView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
 
+            Button(L10n.tr("取消", "Cancel", "Отмена")) { cancelScan() }
+                .buttonStyle(.bordered)
+                .tint(.primary)
+                .controlSize(.large)
+
             Spacer()
         }
     }
@@ -162,30 +170,38 @@ struct DuplicatesView: View {
         elapsedSeconds = 0
         scanPhase = L10n.tr("正在扫描个人目录...", "Scanning home folder...", "Сканирование домашней папки...")
 
+        scanTask?.cancel()
+        scanTimerTask?.cancel()
+
         // Elapsed timer
-        let timerTask = Task {
+        scanTimerTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
                 elapsedSeconds += 1
             }
         }
 
-        Task {
+        scanTask = Task {
             scanPhase = L10n.tr("正在扫描个人目录...", "Scanning home folder...", "Сканирование домашней папки...")
             try? await Task.sleep(for: .milliseconds(400))
+            if Task.isCancelled { return }
 
             scanPhase = L10n.tr("正在按大小分组文件...", "Grouping files by size...", "Группировка файлов по размеру...")
             try? await Task.sleep(for: .milliseconds(400))
+            if Task.isCancelled { return }
 
             scanPhase = L10n.tr("正在并行哈希候选文件...", "Hashing candidate files in parallel...", "Параллельное хеширование файлов-кандидатов...")
 
             let module = DuplicatesModule()
             let groups = await module.scanDisplayGroups()
+            if Task.isCancelled { return }
 
             scanPhase = L10n.tr("正在完成...", "Finalizing...", "Завершение...")
             try? await Task.sleep(for: .milliseconds(300))
+            if Task.isCancelled { return }
 
-            timerTask.cancel()
+            scanTimerTask?.cancel()
             displayGroups = groups
             expandedGroups = []
             // The cleaner only ever sees the removable copies — never an
@@ -198,7 +214,22 @@ struct DuplicatesView: View {
             selectedItems = Set(removable.map(\.url))
             isScanning = false
             scanComplete = true
+            scanTask = nil
+            scanTimerTask = nil
         }
+    }
+
+    /// Stop an in-flight duplicates scan and return to the idle screen (#3).
+    private func cancelScan() {
+        scanTask?.cancel()
+        scanTimerTask?.cancel()
+        scanTask = nil
+        scanTimerTask = nil
+        isScanning = false
+        scanComplete = false
+        scanProgress = 0
+        elapsedSeconds = 0
+        scanPhase = ""
     }
 
     private func clean() {
@@ -227,8 +258,12 @@ struct DuplicatesView: View {
     }
 
     private func reset() {
+        scanTask?.cancel()
+        scanTimerTask?.cancel()
+        scanTask = nil
+        scanTimerTask = nil
         results = []; displayGroups = []; expandedGroups = []; selectedItems = []
         completion = nil; cleaning = nil; cleanTask = nil
-        scanComplete = false; elapsedSeconds = 0
+        scanComplete = false; elapsedSeconds = 0; isScanning = false
     }
 }
