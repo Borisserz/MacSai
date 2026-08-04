@@ -319,6 +319,36 @@ Mac Sai 认真对待安全：
 - **受保护路径**：27 个以上 Apple 系统应用和所有受 SIP 保护的路径均被列入黑名单
 - **开源**：每一行代码都可审计
 
+### 自行验证无遥测
+
+不必只听我们说——源码和运行中的进程都可以核对。
+
+**1. 在源码中搜索网络 API**
+
+```bash
+# 应用使用的网络客户端 API（更新检查 + Updater 模块可选的 Sparkle appcast 拉取）。
+# 没有分析、崩溃上报或追踪 SDK。
+rg -n 'URLSession|NSURLConnection' Sources --glob '*.swift'
+```
+
+你应当只在这些位置看到联网代码：
+
+- `Sources/MacCleanKit/UpdateChecker.swift` — 可选的 Mac Sai 更新检查（设置中关闭**自动检查更新**，或不点**检查更新**）
+- `Sources/MacClean/Modules/Updater/UpdaterModule.swift` — 打开「应用更新」模块时，由用户触发的对其它应用 Sparkle 源的扫描
+
+`URL(string:)` 还会出现在本地深链（`macclean://…`）、系统设置面板以及 `Constants.swift` 中的常量 GitHub URL——这些不是出站遥测。
+
+**2. 观察实时进程**
+
+```bash
+# 在 Mac Sai 运行时（且你没有检查更新 / 使用 Updater）：
+lsof -i -P -n | grep -i 'MacClean\|Mac Sai\|MacSai' || echo "no network sockets"
+```
+
+预期：仅做本地清理时，主应用**没有已建立的连接**。若开启了自动检查更新，启动后可能短暂看到一次对 `api.github.com` 的 HTTPS 请求——在设置中关闭该开关即可。
+
+Little Snitch 或 LuLu 等工具可做同样的可视化检查：除你主动允许的 GitHub Releases 请求外，不为 Mac Sai 放行其它出站流量。
+
 ### 安全审计清单
 
 - [x] 无命令注入向量（所有 Process 参数都是硬编码常量）
