@@ -36,13 +36,13 @@ struct MacCleanMenuApp: App {
         AppLanguage(rawValue: appLanguageRaw) ?? .fallback
     }
 
-    /// Menu-bar label icon: the Mac Sai vacuum, in color, at 18px.
-    /// Rendered as a normal (non-template) image so it shows the brand
-    /// colors instead of being flattened to a monochrome mask.
+    /// Menu-bar label icon: an SF Symbol rendered as a template image so
+    /// macOS automatically tints it to match the current menu bar appearance
+    /// (dark in light mode, light in dark mode).
     private static let labelIcon: NSImage = {
-        let img = VacuumAsset.image.copy() as! NSImage
-        img.isTemplate = false
-        img.size = NSSize(width: 18, height: 18)
+        let img = NSImage(systemSymbolName: "sparkles",
+                          accessibilityDescription: "Mac Sai")!
+        img.isTemplate = true
         return img
     }()
 
@@ -61,7 +61,8 @@ struct MacCleanMenuApp: App {
         } label: {
             HStack(spacing: 4) {
                 Image(nsImage: Self.labelIcon)
-                    .renderingMode(.original)
+                    .renderingMode(.template)
+                    .foregroundStyle(.primary)
                 if let stats = model.stats {
                     Text(MenuBarMetric.resolve(menuBarMetricRaw).formattedValue(
                         diskFree: stats.diskFree,
