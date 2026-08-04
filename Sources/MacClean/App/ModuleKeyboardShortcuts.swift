@@ -51,3 +51,20 @@ extension View {
         ))
     }
 }
+
+/// Who handles ⌘K for Duplicates when both the outer view and ModuleContainerView
+/// listen to `cleanShortcutNonce`. Outer always declines; the container owns clean
+/// whenever results (or completion) are on screen.
+enum DuplicatesShortcutOwnership {
+    enum CleanOwner: Equatable {
+        case none
+        case container
+    }
+
+    /// Outer `DuplicatesView` must never accept ⌘K — ModuleContainerView already does.
+    static let outerCanClean = false
+
+    static func cleanOwner(showingContainerResults: Bool) -> CleanOwner {
+        showingContainerResults ? .container : .none
+    }
+}

@@ -86,14 +86,14 @@ struct DuplicatesView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Idle / scanning paths don't use ModuleContainerView; relay shortcuts here.
-        // When ModuleContainerView is shown it also listens — both see the same
-        // nonce, but only one path is on screen and canScan/canClean gates apply.
+        // Idle / scanning paths don't use ModuleContainerView; relay ⌘R here.
+        // When ModuleContainerView is shown it also listens to the same nonces —
+        // outer must NOT accept ⌘K (canClean: false), or clean() runs twice and
+        // the second pass can overwrite the completion summary with "0 freed".
         .respondsToModuleShortcuts(
             onScan: scan,
-            onClean: clean,
             canScan: !isScanning && cleaning == nil && completion == nil && results.isEmpty && !scanComplete,
-            canClean: cleaning == nil && completion == nil && !results.isEmpty && !selectedItems.isEmpty
+            canClean: false
         )
     }
 
