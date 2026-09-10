@@ -1,10 +1,11 @@
 import Foundation
 
 /// POSIX shell quoting for assembling the maintenance admin command that
-/// `osascript`'s `do shell script` hands to `/bin/sh`. Wrapping each
-/// argument in single quotes neutralises every shell metacharacter; the
-/// only character that can't appear literally inside single quotes is the
-/// single quote itself, handled with the standard close-escape-reopen idiom.
+/// in-process `NSAppleScript` (`do shell script`) hands to `/bin/sh`.
+/// Wrapping each argument in single quotes neutralises every shell
+/// metacharacter; the only character that can't appear literally inside
+/// single quotes is the single quote itself, handled with the standard
+/// close-escape-reopen idiom.
 public enum MaintenanceShell {
     public static func quote(_ argument: String) -> String {
         "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'"
@@ -13,6 +14,28 @@ public enum MaintenanceShell {
     /// Quote an executable + its arguments into a single sh command line.
     public static func commandLine(_ executable: String, _ arguments: [String]) -> String {
         ([executable] + arguments).map(quote).joined(separator: " ")
+    }
+
+    /// AppleScript source that runs `commandLine` as root via the standard
+    /// macOS admin-auth dialog. Built as a pure string so quoting is
+    /// unit-testable without executing anything.
+    ///
+    /// The runner executes this **in-process** (`NSAppleScript`) rather than
+    /// spawning `/usr/bin/osascript`. A new osascript process cannot reuse
+    /// macOS's ~5-minute authorization cache, so every maintenance task
+    /// prompted for a password (issue #143).
+    public static func appleScriptSource(commandLine: String) -> String {
+        let escaped = commandLine
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "do shell script \"\(escaped)\" with administrator privileges"
+    }
+
+    /// True when the user dismissed the admin-auth dialog. AppleScript uses
+    /// error number `-128` / the text `User canceled.` for that path.
+    public static func isAuthorizationCancelled(_ message: String, errorNumber: Int? = nil) -> Bool {
+        if errorNumber == -128 { return true }
+        return message.contains("User canceled") || message.contains("-128")
     }
 
     /// Turn an osascript `do shell script` failure into the underlying message.
