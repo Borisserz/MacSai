@@ -182,9 +182,9 @@ struct MaintenanceView: View {
     }
 
     /// Bulk button runs ONLY safe tasks, and runs them SEQUENTIALLY. Several
-    /// safe tasks need admin (purge, periodic); firing them in parallel popped
-    /// multiple macOS password dialogs at once (issue #82). Awaiting each in
-    /// turn means at most one auth prompt is on screen at a time.
+    /// safe tasks need admin (purge, periodic). Sequential order keeps the
+    /// UI status per-task; the in-process AppleScript runner then reuses the
+    /// cached admin password so the user types it once (issues #82 / #143).
     private func runSafeTasks() {
         let safeTasks = MaintenanceTask.allCases.filter { $0.severity == .safe }
         Task {
