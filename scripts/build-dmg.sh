@@ -191,9 +191,13 @@ if [ -f "Resources/AppIcon.icns" ]; then
     cp "Resources/AppIcon.icns" "${MENU_APP}/Contents/Resources/"
 fi
 
-# Step 3: Entitlements (needed for notarization with hardened runtime)
+# Step 3: Entitlements (needed for notarization with hardened runtime).
+# Keep this OUTSIDE the DMG staging folder — it is codesign input only and
+# must not appear as a loose file on the mounted disk image (issue #149).
 echo "[3/7] Creating entitlements..."
-cat > "${DMG_DIR}/entitlements.plist" << ENTITLEMENTS
+ENTITLEMENTS_FILE=".build/entitlements.plist"
+mkdir -p .build
+cat > "${ENTITLEMENTS_FILE}" << ENTITLEMENTS
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -208,7 +212,7 @@ ENTITLEMENTS
 echo "[4/7] Signing app bundle..."
 if [[ "$NOTARIZE" == "true" ]]; then
     codesign --force --deep --options runtime \
-        --entitlements "${DMG_DIR}/entitlements.plist" \
+        --entitlements "${ENTITLEMENTS_FILE}" \
         --sign "$SIGNING_IDENTITY" \
         --timestamp \
         "${APP_BUNDLE}"
@@ -239,7 +243,9 @@ fi
 # below, but it is the only way to ship a DMG that contains a stapled app.
 if [[ "$NOTARIZE" == "true" ]]; then
     echo "[5/7] Notarizing + stapling the app bundle..."
-    APP_ZIP="${DMG_DIR}/${APP_NAME}-notarize.zip"
+    # Keep the zip outside the DMG staging folder so it can never leak into
+    # the image even if a later step forgets to delete it (issue #149).
+    APP_ZIP=".build/${APP_NAME}-notarize.zip"
     ditto -c -k --keepParent "${APP_BUNDLE}" "${APP_ZIP}"
     xcrun notarytool submit "${APP_ZIP}" \
         --keychain-profile "${NOTARY_PROFILE}" \
@@ -250,8 +256,11 @@ if [[ "$NOTARIZE" == "true" ]]; then
     echo "  → App notarized and stapled (verifies offline)"
 fi
 
-# Step 6: Create DMG (now containing the stapled app)
+# Step 6: Create DMG (now containing the stapled app + Applications link).
+# Strip build-only junk and add the /Applications drop target first so the
+# mounted image is a normal drag-to-install disk (issue #149).
 echo "[6/7] Creating DMG..."
+bash "$(dirname "$0")/prepare-dmg-staging.sh" "${DMG_DIR}"
 hdiutil create -volname "${APP_NAME}" \
     -srcfolder "${DMG_DIR}" \
     -ov -format UDZO \
