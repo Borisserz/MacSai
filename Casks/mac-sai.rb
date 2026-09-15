@@ -4,8 +4,10 @@ cask "mac-sai" do
   # "SHA256:" at the end; the release workflow fills this in automatically.
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
 
-  url "https://github.com/iliyami/MacSai/releases/download/v#{version}/MacSai-#{version}.dmg",
-      verified: "github.com/iliyami/MacSai/"
+  # Homebrew dropped the optional URL hostname check (Homebrew/brew#23280);
+  # keeping it only produced a brew-update warning (issue #147). url and
+  # homepage already share github.com/iliyami/MacSai.
+  url "https://github.com/iliyami/MacSai/releases/download/v#{version}/MacSai-#{version}.dmg"
   name "Mac Sai"
   desc "Open-source Mac cleaner, optimizer, and malware scanner"
   homepage "https://github.com/iliyami/MacSai"
