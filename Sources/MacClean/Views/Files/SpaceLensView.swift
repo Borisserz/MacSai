@@ -103,6 +103,7 @@ struct SpaceLensView: View {
             ScanProgressRing(progress: 0.5, phase: L10n.tr("正在扫描磁盘...", "Scanning disk...", "Сканирование диска..."), theme: .files)
             Button(L10n.tr("取消", "Cancel", "Отмена")) {
                 scanTask?.cancel()
+                nav.cancelPendingNavigation()
                 isScanning = false
             }
             .buttonStyle(.bordered)
@@ -235,6 +236,7 @@ struct SpaceLensView: View {
 
             let bounds = CGRect(x: 0, y: 0, width: 700, height: 400)
             treemapRects = SquarifiedTreemap.layout(nodes: Array(treemapNodes), in: bounds)
+            nav.commitPendingNavigation()
             isScanning = false
         }
     }

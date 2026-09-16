@@ -40,4 +40,16 @@ final class SpaceLensNavigationTests: XCTestCase {
         XCTAssertEqual(nav.current, library)
         XCTAssertEqual(nav.breadcrumbs, [home, library])
     }
+
+    func testCancelPendingNavigationRestoresLastCommittedLevel() {
+        var nav = SpaceLensNavigation(root: home)
+        nav.drillInto(library)
+        nav.commitPendingNavigation()
+
+        nav.drillInto(caches)
+        nav.cancelPendingNavigation()
+
+        XCTAssertEqual(nav.current, library)
+        XCTAssertEqual(nav.breadcrumbs, [home, library])
+    }
 }
