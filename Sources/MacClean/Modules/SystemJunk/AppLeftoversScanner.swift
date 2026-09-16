@@ -11,7 +11,8 @@ import MacCleanKit
 public enum AppLeftoversScanner {
 
     /// Standard locations apps are installed. Reading each bundle's
-    /// CFBundleIdentifier gives the "installed" set the detector checks against.
+    /// CFBundleIdentifier (via the recursive Uninstaller walk) gives the
+    /// "installed" set the detector checks against.
     private static let appSearchRoots: [URL] = [
         URL(filePath: "/Applications"),
         URL(filePath: "/Applications/Utilities"),
@@ -75,15 +76,19 @@ public enum AppLeftoversScanner {
     }
 
     /// Lowercased CFBundleIdentifiers of every app found under the standard
-    /// install roots.
+    /// install roots — including apps nested in vendor subfolders (same walk
+    /// as the Uninstaller / issue #120). Without that, App Leftovers treats
+    /// still-installed Adobe/PostgreSQL/… apps as gone (issue #151).
     static func installedBundleIDs() -> Set<String> {
-        let fm = FileManager.default
+        installedBundleIDs(in: appSearchRoots)
+    }
+
+    /// Same as `installedBundleIDs()`, but over an explicit list of roots so
+    /// tests can feed a fixture tree without touching `/Applications`.
+    static func installedBundleIDs(in roots: [URL]) -> Set<String> {
         var ids: Set<String> = []
-        for root in appSearchRoots {
-            guard let apps = try? fm.contentsOfDirectory(
-                at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-            ) else { continue }
-            for app in apps where app.pathExtension == "app" {
+        for root in roots {
+            for app in AppDiscovery.appBundles(in: root) {
                 let infoURL = app.appending(path: "Contents/Info.plist")
                 guard let data = try? Data(contentsOf: infoURL),
                       let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
