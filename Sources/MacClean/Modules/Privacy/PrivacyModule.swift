@@ -26,6 +26,10 @@ public struct PrivacyModule: ScanModule {
 
     private let scanner = TargetedScanner()
     private let timeFilter: TimeFilter
+    private static let safariHistoryFileNames: Set<String> = [
+        "history.db",
+        "history.plist",
+    ]
 
     public init(timeFilter: TimeFilter = .allTime) {
         self.timeFilter = timeFilter
@@ -85,7 +89,31 @@ public struct PrivacyModule: ScanModule {
                 maxAge: timeFilter.maxAge
             ),
         ]
-        return await scanner.scan(targets: targets)
+        let items = await scanner.scan(targets: targets)
+        return Self.filterSafariRootItems(
+            items,
+            safariDirectory: MCConstants.userLibrary.appending(path: "Safari")
+        )
+    }
+
+    static func filterSafariRootItems(
+        _ items: [FileItem],
+        safariDirectory: URL
+    ) -> [FileItem] {
+        let standardizedPath = safariDirectory.standardizedFileURL.path(percentEncoded: false)
+        let safariDirectoryPath = standardizedPath.hasSuffix("/")
+            ? standardizedPath
+            : standardizedPath + "/"
+
+        return items.filter { item in
+            let parentDirectoryPath = item.url.deletingLastPathComponent()
+                .standardizedFileURL.path(percentEncoded: false)
+            guard parentDirectoryPath == safariDirectoryPath else {
+                return true
+            }
+
+            return safariHistoryFileNames.contains(item.url.lastPathComponent.lowercased())
+        }
     }
 
     private func scanSystemPrivacy() async -> [FileItem] {
