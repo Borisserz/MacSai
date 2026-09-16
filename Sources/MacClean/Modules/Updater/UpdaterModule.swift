@@ -64,15 +64,20 @@ public actor AppUpdateChecker {
         guard let (data, _) = try? await URLSession.shared.data(from: feedURL) else { return nil }
 
         let parser = AppcastParser()
-        let (latestVersion, downloadURL) = parser.parseLatestItem(from: data)
+        let (latestMarketingVersion, downloadURL) = parser.parseLatestItem(from: data)
 
         let currentVersion = app.version ?? "0"
-        let hasUpdate = UpdaterActions.hasUpdate(current: currentVersion, available: latestVersion)
+        // AppInfo.version is CFBundleShortVersionString, so compare it only
+        // with the parser's preferred Sparkle marketing version.
+        let hasUpdate = UpdaterActions.hasUpdate(
+            current: currentVersion,
+            available: latestMarketingVersion
+        )
 
         return AppUpdate(
             app: app,
             currentVersion: currentVersion,
-            availableVersion: latestVersion,
+            availableVersion: latestMarketingVersion,
             downloadURL: downloadURL,
             updateSize: nil,
             hasUpdate: hasUpdate
