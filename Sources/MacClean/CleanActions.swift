@@ -75,8 +75,21 @@ public enum CleanActions {
         // onProgress to both is safe and never double-drives the bar.
         let trashResult = await engine.clean(items: dedupedTrashItems, mode: .trash,
                                              onProgress: onProgress)
+        if Task.isCancelled {
+            return trashResult
+        }
+
         let permanentResult = await engine.clean(items: dedupedPermanentItems, mode: .permanent,
                                                  onProgress: onProgress)
+        if Task.isCancelled {
+            return CleaningEngine.CleanResult(
+                removedCount: trashResult.removedCount + permanentResult.removedCount,
+                freedBytes: trashResult.freedBytes + permanentResult.freedBytes,
+                errors: trashResult.errors + permanentResult.errors,
+                skippedCount: trashResult.skippedCount + permanentResult.skippedCount
+            )
+        }
+
         let thinResult = await thinSelectedBinaries(thinItems)
         return CleaningEngine.CleanResult(
             removedCount: trashResult.removedCount + permanentResult.removedCount + thinResult.removedCount,
@@ -104,9 +117,13 @@ public enum CleanActions {
         var savedBytes: UInt64 = 0
         var errors: [CleaningEngine.CleanError] = []
         for item in items {
+            if Task.isCancelled { break }
+
             do {
                 let r = try await op.thin(bundle: item.url, to: targetArch)
-                bundleCount += 1
+                if r.binariesThinned > 0 {
+                    bundleCount += 1
+                }
                 savedBytes += r.bytesSaved
                 for (path, msg) in r.perBinaryErrors {
                     errors.append(CleaningEngine.CleanError(
