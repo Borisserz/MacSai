@@ -585,9 +585,8 @@ struct SmartScanView: View {
     }
 
     private func runCleanup() {
-        // Snapshot selection + module breakdown up-front so the background
-        // task can't observe a later mutation, and so the done screen can
-        // show what was cleaned per module (#4).
+        // Snapshot the inputs up-front so the background task can't observe
+        // later selection or scan-state mutations.
         let modules: [ModuleScanResult]
         if case .results(_, _, _, _, let moduleResults) = scanState {
             modules = moduleResults
@@ -596,10 +595,6 @@ struct SmartScanView: View {
         }
         let results = cleanResults
         let selection = selectedItems
-        let breakdown = SmartScanCleanup.recentlyCleanedBreakdown(
-            from: modules,
-            selectedItems: selection
-        )
         scanState = .cleaning(progress: 0)
         cleanTask = Task {
             let result = await CleanActions.executeUserClean(
@@ -614,6 +609,10 @@ struct SmartScanView: View {
                         scanState = .cleaning(progress: p.fraction)
                     }
                 } }
+            )
+            let breakdown = SmartScanCleanup.recentlyCleanedBreakdown(
+                from: modules,
+                selectedItems: result.removedURLs
             )
             scanState = .done(freedSize: result.freedBytes, breakdown: breakdown)
         }

@@ -94,6 +94,9 @@ public enum CleanActions {
         return CleaningEngine.CleanResult(
             removedCount: trashResult.removedCount + permanentResult.removedCount + thinResult.removedCount,
             freedBytes: trashResult.freedBytes + permanentResult.freedBytes + thinResult.freedBytes,
+            removedURLs: trashResult.removedURLs
+                .union(permanentResult.removedURLs)
+                .union(thinResult.removedURLs),
             errors: trashResult.errors + permanentResult.errors + thinResult.errors,
             skippedCount: trashResult.skippedCount + permanentResult.skippedCount + thinResult.skippedCount
         )
@@ -108,13 +111,15 @@ public enum CleanActions {
     ) async -> CleaningEngine.CleanResult {
         guard !items.isEmpty else {
             return CleaningEngine.CleanResult(
-                removedCount: 0, freedBytes: 0, errors: [], skippedCount: 0
+                removedCount: 0, freedBytes: 0, removedURLs: [],
+                errors: [], skippedCount: 0
             )
         }
         let op = ThinAppBundleOperation()
         let targetArch = BundleHostInfo.current.hostArch
         var bundleCount = 0
         var savedBytes: UInt64 = 0
+        var removedURLs = Set<URL>()
         var errors: [CleaningEngine.CleanError] = []
         for item in items {
             if Task.isCancelled { break }
@@ -125,6 +130,7 @@ public enum CleanActions {
                     bundleCount += 1
                 }
                 savedBytes += r.bytesSaved
+                removedURLs.insert(item.url)
                 for (path, msg) in r.perBinaryErrors {
                     errors.append(CleaningEngine.CleanError(
                         path: path, error: L10n.tr("二进制精简失败：\(msg)", "binary thin failed: \(msg)", "Не удалось удалить лишние архитектуры из бинарного файла: \(msg)")
@@ -140,6 +146,7 @@ public enum CleanActions {
         return CleaningEngine.CleanResult(
             removedCount: bundleCount,
             freedBytes: savedBytes,
+            removedURLs: removedURLs,
             errors: errors,
             skippedCount: 0
         )

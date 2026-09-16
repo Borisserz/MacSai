@@ -124,4 +124,30 @@ final class SmartScanCleanupTests: XCTestCase {
         XCTAssertEqual(rows[0].itemCount, 1)
         XCTAssertEqual(rows[0].size, 100)
     }
+
+    func testSmartScanBuildsRecentlyCleanedBreakdownFromRemovedURLs() throws {
+        let viewURL = URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Sources/MacClean/Views/SmartScan/SmartScanView.swift")
+        let source = try String(contentsOf: viewURL, encoding: .utf8)
+
+        let executeRange = try XCTUnwrap(
+            source.range(of: "let result = await CleanActions.executeUserClean")
+        )
+        let breakdownRange = try XCTUnwrap(
+            source.range(of: "let breakdown = SmartScanCleanup.recentlyCleanedBreakdown")
+        )
+
+        XCTAssertGreaterThan(
+            breakdownRange.lowerBound,
+            executeRange.lowerBound,
+            "Recently cleaned must be derived after cleanup returns, not snapshotted before it"
+        )
+        XCTAssertTrue(
+            source.contains("selectedItems: result.removedURLs"),
+            "Recently cleaned must include only URLs the cleanup result reports as removed"
+        )
+    }
 }

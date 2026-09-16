@@ -12,6 +12,7 @@ public actor CleaningEngine {
     public struct CleanResult: Sendable {
         public let removedCount: Int
         public let freedBytes: UInt64
+        public let removedURLs: Set<URL>
         public let errors: [CleanError]
         public let skippedCount: Int
     }
@@ -71,6 +72,7 @@ public actor CleaningEngine {
             return CleanResult(
                 removedCount: 0,
                 freedBytes: 0,
+                removedURLs: [],
                 errors: [CleanError(path: "validation", error: msg)],
                 skippedCount: items.count
             )
@@ -78,6 +80,7 @@ public actor CleaningEngine {
 
         var removedCount = 0
         var freedBytes: UInt64 = 0
+        var removedURLs = Set<URL>()
         var errors: [CleanError] = []
         var skippedCount = 0
 
@@ -100,6 +103,7 @@ public actor CleaningEngine {
                 chunk, mode: mode,
                 removedCount: &removedCount,
                 freedBytes: &freedBytes,
+                removedURLs: &removedURLs,
                 errors: &errors,
                 skippedCount: &skippedCount
             )
@@ -124,6 +128,7 @@ public actor CleaningEngine {
         return CleanResult(
             removedCount: removedCount,
             freedBytes: freedBytes,
+            removedURLs: removedURLs,
             errors: errors,
             skippedCount: skippedCount
         )
@@ -139,6 +144,7 @@ public actor CleaningEngine {
         mode: CleanMode,
         removedCount: inout Int,
         freedBytes: inout UInt64,
+        removedURLs: inout Set<URL>,
         errors: inout [CleanError],
         skippedCount: inout Int
     ) {
@@ -192,6 +198,7 @@ public actor CleaningEngine {
             case .dryRun:
                 removedCount += 1
                 freedBytes += realSize
+                removedURLs.insert(item.url)
                 logOperation(path: item.url, size: realSize, dryRun: true)
 
             case .trash:
@@ -199,6 +206,7 @@ public actor CleaningEngine {
                     try FileManager.default.trashItem(at: item.url, resultingItemURL: nil)
                     removedCount += 1
                     freedBytes += realSize
+                    removedURLs.insert(item.url)
                     logOperation(path: item.url, size: realSize, dryRun: false)
                 } catch let nsError as NSError where Self.isBenignMissingFile(nsError) {
                     // Cache churn: scanner saw the file, but a daemon
@@ -219,6 +227,7 @@ public actor CleaningEngine {
                     try FileManager.default.removeItem(at: item.url)
                     removedCount += 1
                     freedBytes += realSize
+                    removedURLs.insert(item.url)
                     logOperation(path: item.url, size: realSize, dryRun: false)
                 } catch let nsError as NSError where Self.isBenignMissingFile(nsError) {
                     skippedCount += 1
