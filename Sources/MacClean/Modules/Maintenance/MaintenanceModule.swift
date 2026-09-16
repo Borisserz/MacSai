@@ -14,7 +14,8 @@ public struct MaintenanceModule: ScanModule {
 // MARK: - Maintenance Executor
 //
 // `MaintenanceTask` (the enum + descriptions + system commands) lives in
-// MacCleanKit. This actor wraps `Process` to actually run the commands.
+// MacCleanKit. This actor runs those commands: admin ones through in-process
+// AppleScript (password cached per process, issue #143), the rest via Process.
 
 public actor MaintenanceExecutor {
     public struct TaskResult: Sendable {
@@ -24,7 +25,23 @@ public actor MaintenanceExecutor {
         public let error: String?
     }
 
-    public init() {}
+    private let privilegedRunner: any PrivilegedShellRunning
+    private let commandExists: @Sendable (String) -> Bool
+
+    public init() {
+        self.init(
+            privilegedRunner: AppleScriptPrivilegedRunner(),
+            commandExists: { FileManager.default.isExecutableFile(atPath: $0) }
+        )
+    }
+
+    init(
+        privilegedRunner: any PrivilegedShellRunning,
+        commandExists: @escaping @Sendable (String) -> Bool
+    ) {
+        self.privilegedRunner = privilegedRunner
+        self.commandExists = commandExists
+    }
 
     public func execute(_ task: MaintenanceTask) async -> TaskResult {
         if case .speedUpMail = task { return await reindexMail() }
@@ -44,9 +61,7 @@ public actor MaintenanceExecutor {
         // `systemCommand`, the same way `pruneDocker` already gates on the
         // Docker CLI. Checked unprivileged, so an admin task fails before the
         // password prompt rather than after it.
-        guard task.systemCommandIsAvailable(existing: {
-            FileManager.default.isExecutableFile(atPath: $0)
-        }) else {
+        guard task.systemCommandIsAvailable(existing: commandExists) else {
             return TaskResult(
                 task: task, success: false, output: "",
                 error: L10n.tr("\(command) 在当前 macOS 版本中不可用，无法执行该任务。",
@@ -61,35 +76,28 @@ public actor MaintenanceExecutor {
     }
 
     /// Run a root-requiring command via the standard macOS admin-auth prompt
-    /// (`do shell script … with administrator privileges`). macOS shows its
-    /// native password dialog and runs the command as root — no persistent
-    /// privileged helper needed. The command strings come from the fixed
-    /// `MaintenanceTask` enum (never user input); we still escape the
-    /// AppleScript string literal defensively.
+    /// (`do shell script … with administrator privileges`). Executed
+    /// in-process so successive tasks reuse the cached credentials (issue
+    /// #143) — spawning `/usr/bin/osascript` each time could not. The
+    /// command strings come from the fixed `MaintenanceTask` enum (never
+    /// user input).
     private func runAdminProcess(task: MaintenanceTask, command: String, args: [String]) async -> TaskResult {
-        // Each argv element is single-quoted (MaintenanceShell.quote) so sh
-        // can't re-split or interpret it; the assembled command is then
-        // escaped as an AppleScript string literal for `do shell script`.
         let shell = MaintenanceShell.commandLine(command, args)
-        let escaped = shell
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let script = "do shell script \"\(escaped)\" with administrator privileges"
-        let result = await runProcess(task: task, command: "/usr/bin/osascript", args: ["-e", script])
+        let result = await privilegedRunner.run(commandLine: shell)
 
-        // osascript returns -128 / "User canceled." when the user dismisses
-        // the auth dialog — surface that as a friendly note, not an error.
-        if !result.success, let err = result.error {
-            if err.contains("User canceled") || err.contains("-128") {
-                return TaskResult(task: task, success: false, output: "",
-                                  error: L10n.tr("已取消——未授予管理员权限。", "Cancelled — administrator access was not granted.", "Отменено: не предоставлены права администратора."))
-            }
-            // Otherwise strip osascript's "1:92: execution error: … (1)" wrapper
-            // so the user sees the real underlying message (issue #82).
-            return TaskResult(task: task, success: false, output: "",
-                              error: MaintenanceShell.humanReadableError(err))
+        if result.success {
+            return TaskResult(task: task, success: true, output: result.output, error: nil)
         }
-        return result
+
+        let err = result.error ?? ""
+        if MaintenanceShell.isAuthorizationCancelled(err, errorNumber: result.errorNumber) {
+            return TaskResult(task: task, success: false, output: "",
+                              error: L10n.tr("已取消——未授予管理员权限。", "Cancelled — administrator access was not granted.", "Отменено: не предоставлены права администратора."))
+        }
+        // Strip AppleScript's "1:92: execution error: … (1)" wrapper so the
+        // user sees the real underlying message (issue #82).
+        return TaskResult(task: task, success: false, output: "",
+                          error: MaintenanceShell.humanReadableError(err))
     }
 
     private func runProcess(task: MaintenanceTask, command: String, args: [String]) async -> TaskResult {
