@@ -62,6 +62,23 @@ final class CleanActionsTests: XCTestCase {
         FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
     }
 
+    private func writeUniversalApp(
+        _ name: String
+    ) throws -> (bundle: URL, binary: URL, item: FileItem) {
+        let bundle = testDir.appending(path: "\(name).app")
+        let binary = bundle.appending(path: "Contents/MacOS/\(name)")
+        let built = try UniversalBinaryFixture.build(at: binary)
+        try XCTSkipUnless(built, "cc not available")
+        let item = FileItem(
+            url: bundle,
+            name: "\(name).app",
+            size: 0,
+            allocatedSize: 0,
+            isDirectory: true
+        )
+        return (bundle, binary, item)
+    }
+
     // MARK: - The big one: files actually leave the filesystem
 
     func testProductionPath_actuallyMovesSelectedFilesToTrash() async throws {
@@ -191,6 +208,146 @@ final class CleanActionsTests: XCTestCase {
         XCTAssertFalse(exists(cacheURL))
         XCTAssertFalse(exists(logURL))
         XCTAssertEqual(result.removedCount, 2)
+    }
+
+    // MARK: - Cancellation between clean phases
+
+    func testCancellationAfterTrashSkipsPermanentDeleteAndThinning() async throws {
+        let (cacheURL, cacheItem) = try writeReal("cancel-after-trash.cache")
+
+        let trash = MCConstants.userTrash
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        let trashURL = trash.appending(path: "macclean-cancel-test-\(UUID().uuidString).bin")
+        try Data(count: 128).write(to: trashURL)
+        trashTestArtifacts.append(trashURL)
+        let trashItem = FileItem(
+            url: trashURL,
+            name: trashURL.lastPathComponent,
+            size: 128,
+            allocatedSize: 128,
+            isDirectory: false
+        )
+
+        let app = try writeUniversalApp("CancelAfterTrash")
+        let results = [
+            ScanResult(category: .userCaches, items: [cacheItem]),
+            ScanResult(category: .trashBins, items: [trashItem]),
+            ScanResult(category: .universalBinaries, items: [app.item]),
+        ]
+
+        let result = await CleanActions.executeUserClean(
+            results: results,
+            selectedItems: [cacheURL, trashURL, app.bundle],
+            engine: CleaningEngine(),
+            onProgress: { _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+        )
+
+        XCTAssertFalse(exists(cacheURL), "trash phase should return its completed work")
+        XCTAssertTrue(exists(trashURL), "cancellation must skip the permanent-delete phase")
+        XCTAssertEqual(
+            Set(UniversalBinaryFixture.architectures(of: app.binary)),
+            Set(["x86_64", "arm64"]),
+            "cancellation must skip thinning"
+        )
+        XCTAssertEqual(result.removedCount, 1, "result should contain only completed trash work")
+    }
+
+    func testCancellationAfterPermanentDeleteSkipsThinning() async throws {
+        let trash = MCConstants.userTrash
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        let trashURL = trash.appending(path: "macclean-cancel-test-\(UUID().uuidString).bin")
+        try Data(count: 128).write(to: trashURL)
+        trashTestArtifacts.append(trashURL)
+        let trashItem = FileItem(
+            url: trashURL,
+            name: trashURL.lastPathComponent,
+            size: 128,
+            allocatedSize: 128,
+            isDirectory: false
+        )
+
+        let app = try writeUniversalApp("CancelAfterPermanent")
+        let results = [
+            ScanResult(category: .trashBins, items: [trashItem]),
+            ScanResult(category: .universalBinaries, items: [app.item]),
+        ]
+
+        let result = await CleanActions.executeUserClean(
+            results: results,
+            selectedItems: [trashURL, app.bundle],
+            engine: CleaningEngine(),
+            onProgress: { _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+        )
+
+        XCTAssertFalse(exists(trashURL), "permanent-delete phase should return its completed work")
+        XCTAssertEqual(
+            Set(UniversalBinaryFixture.architectures(of: app.binary)),
+            Set(["x86_64", "arm64"]),
+            "cancellation must skip thinning"
+        )
+        XCTAssertEqual(result.removedCount, 1, "result should contain only completed permanent-delete work")
+    }
+
+    func testAlreadyCancelledTaskSkipsEveryUniversalBinaryBundle() async throws {
+        let first = try writeUniversalApp("CancelledFirst")
+        let second = try writeUniversalApp("CancelledSecond")
+        let results = [
+            ScanResult(category: .universalBinaries, items: [first.item, second.item])
+        ]
+
+        let result = await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await CleanActions.executeUserClean(
+                results: results,
+                selectedItems: [first.bundle, second.bundle],
+                engine: CleaningEngine()
+            )
+        }.value
+
+        for binary in [first.binary, second.binary] {
+            XCTAssertEqual(
+                Set(UniversalBinaryFixture.architectures(of: binary)),
+                Set(["x86_64", "arm64"]),
+                "the thinning loop must stop before processing a bundle when cancelled"
+            )
+        }
+        XCTAssertEqual(result.removedCount, 0)
+        XCTAssertEqual(result.freedBytes, 0)
+    }
+
+    // MARK: - Universal binary result accuracy
+
+    func testThinningDoesNotCountBundleWhenNoBinaryWasThinned() async throws {
+        let app = try writeUniversalApp("AllBinariesFail")
+        let executableDirectory = app.binary.deletingLastPathComponent()
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: Int16(0o555))],
+            ofItemAtPath: executableDirectory.path(percentEncoded: false)
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o755))],
+                ofItemAtPath: executableDirectory.path(percentEncoded: false)
+            )
+        }
+
+        let result = await CleanActions.executeUserClean(
+            results: [ScanResult(category: .universalBinaries, items: [app.item])],
+            selectedItems: [app.bundle],
+            engine: CleaningEngine()
+        )
+
+        XCTAssertEqual(result.removedCount, 0, "a bundle with zero successful thins is not removed")
+        XCTAssertEqual(result.freedBytes, 0)
+        XCTAssertFalse(result.errors.isEmpty, "per-binary failures must still be reported")
+        XCTAssertEqual(
+            Set(UniversalBinaryFixture.architectures(of: app.binary)),
+            Set(["x86_64", "arm64"])
+        )
     }
 
     // MARK: - Uninstaller variant (flat item list)
