@@ -85,6 +85,7 @@ public enum CleanActions {
             return CleaningEngine.CleanResult(
                 removedCount: trashResult.removedCount + permanentResult.removedCount,
                 freedBytes: trashResult.freedBytes + permanentResult.freedBytes,
+                removedURLs: trashResult.removedURLs.union(permanentResult.removedURLs),
                 errors: trashResult.errors + permanentResult.errors,
                 skippedCount: trashResult.skippedCount + permanentResult.skippedCount
             )
