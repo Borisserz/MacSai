@@ -103,6 +103,7 @@ final class CleaningEngineTests: XCTestCase {
 
         XCTAssertEqual(result.removedCount, 1, "the safe file must still be cleaned")
         XCTAssertEqual(result.freedBytes, 500)
+        XCTAssertEqual(result.removedURLs, [good])
         XCTAssertEqual(result.errors.count, 1, "only the unsafe path should error")
         XCTAssertTrue(result.errors.first?.path.contains("printer.ppd") ?? false,
                       "the error should name the offending path, not the whole chunk")
@@ -166,6 +167,7 @@ final class CleaningEngineTests: XCTestCase {
             "not user-facing errors — cache daemons churn constantly")
         XCTAssertEqual(result.skippedCount, 1, "the missing file is counted as skipped")
         XCTAssertEqual(result.removedCount, 0)
+        XCTAssertTrue(result.removedURLs.isEmpty)
     }
 
     func testSafetyValidationBlocksWholeBatch() async {
@@ -355,6 +357,7 @@ final class CleaningEngineTests: XCTestCase {
 
         XCTAssertLessThan(result.removedCount, items.count,
             "cancellation must stop processing before the whole selection is done")
+        XCTAssertEqual(result.removedURLs.count, result.removedCount)
     }
 
     // MARK: - Empty input
