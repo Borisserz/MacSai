@@ -1,15 +1,20 @@
 import Foundation
 
-/// Minimal Sparkle appcast XML parser. Extracts the latest version's
-/// `sparkle:shortVersionString` (or `sparkle:version`) from an appcast feed.
+/// Minimal Sparkle appcast XML parser. Extracts the latest marketing version's
+/// `sparkle:shortVersionString`, falling back to `sparkle:version` only when
+/// the feed has no marketing versions.
 public final class AppcastParser: NSObject, XMLParserDelegate, @unchecked Sendable {
-    /// Highest-version item seen so far (across the whole feed).
-    private var bestVersion: String?
-    private var bestDownloadURL: URL?
-    /// Version/URL of the item currently being parsed.
+    /// Keep marketing and build versions in separate domains. A build such as
+    /// 4012 must never outrank a marketing version such as 2.1.0.
+    private var bestShortVersion: String?
+    private var bestShortDownloadURL: URL?
+    private var bestBuildVersion: String?
+    private var bestBuildDownloadURL: URL?
     private var inItem = false
-    private var currentVersion: String?
-    private var currentURL: URL?
+    private var currentShortVersion: String?
+    private var currentShortDownloadURL: URL?
+    private var currentBuildVersion: String?
+    private var currentBuildDownloadURL: URL?
 
     public override init() { super.init() }
 
@@ -18,15 +23,23 @@ public final class AppcastParser: NSObject, XMLParserDelegate, @unchecked Sendab
     }
 
     public func parseLatestItem(from data: Data) -> (version: String?, downloadURL: URL?) {
-        bestVersion = nil
-        bestDownloadURL = nil
+        bestShortVersion = nil
+        bestShortDownloadURL = nil
+        bestBuildVersion = nil
+        bestBuildDownloadURL = nil
         inItem = false
-        currentVersion = nil
-        currentURL = nil
+        resetCurrentItem()
         let parser = XMLParser(data: data)
         parser.delegate = self
         parser.parse()
-        return (bestVersion, bestDownloadURL)
+        let version = UpdateChecker.preferredAppcastVersion(
+            shortVersion: bestShortVersion,
+            buildVersion: bestBuildVersion
+        )
+        let downloadURL = bestShortVersion == nil
+            ? bestBuildDownloadURL
+            : bestShortDownloadURL
+        return (version, downloadURL)
     }
 
     public func parser(_ parser: XMLParser, didStartElement elementName: String,
@@ -34,16 +47,19 @@ public final class AppcastParser: NSObject, XMLParserDelegate, @unchecked Sendab
                        attributes: [String: String] = [:]) {
         if elementName == "item" {
             inItem = true
-            currentVersion = nil
-            currentURL = nil
+            resetCurrentItem()
         }
         if elementName == "enclosure", inItem {
-            if let version = attributes["sparkle:shortVersionString"] ?? attributes["sparkle:version"],
-               currentVersion == nil {
-                currentVersion = version
+            let downloadURL = attributes["url"].flatMap(URL.init(string:))
+            if let shortVersion = attributes["sparkle:shortVersionString"],
+               currentShortVersion == nil {
+                currentShortVersion = shortVersion
+                currentShortDownloadURL = downloadURL
             }
-            if let urlStr = attributes["url"], let url = URL(string: urlStr), currentURL == nil {
-                currentURL = url
+            if let buildVersion = attributes["sparkle:version"],
+               currentBuildVersion == nil {
+                currentBuildVersion = buildVersion
+                currentBuildDownloadURL = downloadURL
             }
         }
     }
@@ -55,12 +71,28 @@ public final class AppcastParser: NSObject, XMLParserDelegate, @unchecked Sendab
         // Keep the highest version across all items. Sparkle appcasts are NOT
         // guaranteed to list the newest release first (issue #105: taking the
         // first item offered downgrades), so compare every item's version.
-        if let version = currentVersion,
-           bestVersion == nil || UpdateChecker.isNewer(version, than: bestVersion!) {
-            bestVersion = version
-            bestDownloadURL = currentURL
+        if let version = currentShortVersion,
+           shouldReplace(bestShortVersion, with: version) {
+            bestShortVersion = version
+            bestShortDownloadURL = currentShortDownloadURL
         }
-        currentVersion = nil
-        currentURL = nil
+        if let version = currentBuildVersion,
+           shouldReplace(bestBuildVersion, with: version) {
+            bestBuildVersion = version
+            bestBuildDownloadURL = currentBuildDownloadURL
+        }
+        resetCurrentItem()
+    }
+
+    private func shouldReplace(_ bestVersion: String?, with candidate: String) -> Bool {
+        guard let bestVersion else { return true }
+        return UpdateChecker.isNewer(candidate, than: bestVersion)
+    }
+
+    private func resetCurrentItem() {
+        currentShortVersion = nil
+        currentShortDownloadURL = nil
+        currentBuildVersion = nil
+        currentBuildDownloadURL = nil
     }
 }

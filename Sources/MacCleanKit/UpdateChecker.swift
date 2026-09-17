@@ -43,6 +43,17 @@ public enum UpdateChecker {
         return false
     }
 
+    /// Select the version that can be compared with
+    /// `CFBundleShortVersionString`. Sparkle's short version is the marketing
+    /// version; `sparkle:version` is only a fallback when no short version is
+    /// available anywhere in the appcast.
+    public static func preferredAppcastVersion(
+        shortVersion: String?,
+        buildVersion: String?
+    ) -> String? {
+        shortVersion ?? buildVersion
+    }
+
     /// Caskroom locations for Apple Silicon and Intel Homebrew prefixes.
     public static let defaultCaskroomPaths = [
         "/opt/homebrew/Caskroom/mac-sai",

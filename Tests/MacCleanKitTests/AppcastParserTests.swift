@@ -94,6 +94,24 @@ final class AppcastParserTests: XCTestCase {
         XCTAssertEqual(result.downloadURL?.absoluteString, "https://e/new.zip")
     }
 
+    // Regression for #163: CFBundleVersion build numbers and
+    // CFBundleShortVersionString marketing versions are different domains.
+    func testPrefersMarketingVersionOverHigherBuildNumberAcrossFeed() {
+        let xml = """
+        <rss xmlns:sparkle="ns">
+          <channel>
+            <item><enclosure url="https://e/build.zip" sparkle:version="4012"/></item>
+            <item><enclosure url="https://e/release.zip"
+                             sparkle:shortVersionString="2.1.0"
+                             sparkle:version="2100"/></item>
+          </channel>
+        </rss>
+        """
+        let result = AppcastParser().parseLatestItem(from: Data(xml.utf8))
+        XCTAssertEqual(result.version, "2.1.0")
+        XCTAssertEqual(result.downloadURL?.absoluteString, "https://e/release.zip")
+    }
+
     func testParserIsReusable() {
         let parser = AppcastParser()
         let xml1 = "<rss xmlns:sparkle=\"ns\"><channel><item><enclosure sparkle:shortVersionString=\"1.0\"/></item></channel></rss>"

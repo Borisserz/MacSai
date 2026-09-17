@@ -20,6 +20,15 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertFalse(UpdateChecker.isNewer("abc", than: "1.9.0"))   // non-numeric reads as 0
     }
 
+    func testAppcastComparisonPrefersMarketingVersionOverBuildNumber() throws {
+        let candidate = try XCTUnwrap(UpdateChecker.preferredAppcastVersion(
+            shortVersion: "2.1.0",
+            buildVersion: "4012"
+        ))
+        XCTAssertEqual(candidate, "2.1.0")
+        XCTAssertFalse(UpdateChecker.isNewer(candidate, than: "2.1.0"))
+    }
+
     // MARK: - parseLatestRelease
 
     func testParseValidPayload() throws {
