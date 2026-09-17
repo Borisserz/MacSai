@@ -92,14 +92,17 @@ final class AppMatchingTests: XCTestCase {
 
     // MARK: - Level 7: version stripped
 
-    func testVersionStripping() {
+    func testVersionStrippingRejectsGenericAppPattern() {
         let app = AppInfo(
             bundleIdentifier: "com.example.app2",
             name: "App 2.0.1",
             path: URL(filePath: "/App.app")
         )
         let patterns = AppMatching.generatePatterns(for: app, maxLevel: .versionStripped)
-        XCTAssertTrue(patterns.contains("app"))
+        XCTAssertFalse(patterns.contains("app"),
+                       "generic app token must not become a leftover pattern")
+        XCTAssertFalse(AppMatching.filenameMatches("WhatsApp", patterns: patterns),
+                       "generic app token must not match unrelated apps")
     }
 
     // MARK: - Level 8: company name
@@ -207,6 +210,18 @@ final class AppMatchingTests: XCTestCase {
         // Defense in depth: even if an empty pattern is present it must never
         // match everything.
         XCTAssertFalse(AppMatching.filenameMatches("anything.plist", patterns: ["", "zzz"]))
+    }
+
+    func testShortAppNameDoesNotOverMatchUnrelatedFiles() {
+        let app = AppInfo(
+            bundleIdentifier: "",
+            name: "X",
+            path: URL(filePath: "/Applications/X.app")
+        )
+        let patterns = AppMatching.generatePatterns(for: app)
+        XCTAssertFalse(patterns.contains("x"),
+                       "single-character app names are too broad for substring matching")
+        XCTAssertFalse(AppMatching.filenameMatches("firefox", patterns: patterns))
     }
 
     // MARK: - Library subdirectories list

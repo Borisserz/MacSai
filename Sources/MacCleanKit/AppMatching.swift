@@ -118,11 +118,12 @@ public enum AppMatching {
             }
         }
 
-        // Never emit an empty pattern (e.g. an app with no CFBundleIdentifier
-        // inserts "" at the bundle-ID levels). An empty token is useless and,
-        // if the matcher ever stops relying on Foundation's contains semantics,
-        // would match every file.
-        return patterns.filter { !$0.isEmpty }
+        // Substring matching makes short and generic tokens unsafe: "x" would
+        // match Firefox, while "app" would match WhatsApp.
+        let genericPatterns: Set<String> = ["app"]
+        return patterns.filter {
+            $0.count >= 3 && !genericPatterns.contains($0)
+        }
     }
 
     /// Returns true if `fileName` (lowercased) matches any of the patterns.
