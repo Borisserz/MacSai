@@ -31,6 +31,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case duplicates = "重复文件"
     case shredder = "文件粉碎"
 
+        case diskHogs = "开发者磁盘占用"
+
     // Footer (pinned below the list, not rendered in any section)
     case settings = "设置"
 
@@ -57,6 +59,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .largeOldFiles: "large-old-files"
         case .duplicates: "duplicates"
         case .shredder: "shredder"
+        case .diskHogs: "disk-hogs"
         case .settings: "settings"
         }
     }
@@ -85,6 +88,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .largeOldFiles: "doc.richtext"
         case .duplicates: "plus.square.on.square"
         case .shredder: "scissors"
+        case .diskHogs: "externaldrive.badge.xmark"
         case .settings: "gearshape"
         }
     }
@@ -92,7 +96,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     public var theme: ModuleTheme {
         switch self {
         case .smartScan: .smartScan
-        case .systemJunk, .mailAttachments, .trashBins: .cleanup
+        case .systemJunk, .mailAttachments, .trashBins, .diskHogs: .cleanup
         case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
         case .uninstaller, .extensions, .updater: .applications
@@ -104,7 +108,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     public var section: SidebarSection {
         switch self {
         case .smartScan: .main
-        case .systemJunk, .mailAttachments, .trashBins: .cleanup
+        case .systemJunk, .mailAttachments, .trashBins, .diskHogs: .cleanup
         case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
         case .uninstaller, .extensions, .updater: .applications
