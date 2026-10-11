@@ -205,6 +205,8 @@ public enum MCConstants {
 
     public static let operationLogDir = userLogs.appending(path: "MacClean")
     public static let operationLogFile = operationLogDir.appending(path: "operations.log")
+    /// JSON history of Trash-first cleans for one-click Restore (#223).
+    public static let cleanHistoryFile = operationLogDir.appending(path: "clean-history.json")
 
     // MARK: - Project links
 
