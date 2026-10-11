@@ -31,6 +31,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case duplicates = "重复文件"
     case shredder = "文件粉碎"
 
+        case browserExtensions = "浏览器扩展"
+
     // Footer (pinned below the list, not rendered in any section)
     case settings = "设置"
 
@@ -57,6 +59,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .largeOldFiles: "large-old-files"
         case .duplicates: "duplicates"
         case .shredder: "shredder"
+        case .browserExtensions: "browser-extensions"
         case .settings: "settings"
         }
     }
@@ -85,6 +88,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .largeOldFiles: "doc.richtext"
         case .duplicates: "plus.square.on.square"
         case .shredder: "scissors"
+        case .browserExtensions: "puzzlepiece"
         case .settings: "gearshape"
         }
     }
@@ -93,7 +97,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         switch self {
         case .smartScan: .smartScan
         case .systemJunk, .mailAttachments, .trashBins: .cleanup
-        case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
+        case .malwareRemoval, .privacy, .browserExtensions, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
         case .uninstaller, .extensions, .updater: .applications
         case .spaceLens, .largeOldFiles, .duplicates, .shredder: .files
@@ -105,7 +109,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         switch self {
         case .smartScan: .main
         case .systemJunk, .mailAttachments, .trashBins: .cleanup
-        case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
+        case .malwareRemoval, .privacy, .browserExtensions, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
         case .uninstaller, .extensions, .updater: .applications
         case .spaceLens, .largeOldFiles, .duplicates, .shredder: .files

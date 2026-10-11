@@ -12,6 +12,8 @@ final class DeepLinkRoutingTests: XCTestCase {
         XCTAssertEqual(SidebarItem(deepLinkID: "app-permissions"), .appPermissions)
         XCTAssertEqual(SidebarItem.extensions.deepLinkID, "extensions")
         XCTAssertEqual(SidebarItem(deepLinkID: "extensions"), .extensions)
+        XCTAssertEqual(SidebarItem.browserExtensions.deepLinkID, "browser-extensions")
+        XCTAssertEqual(SidebarItem(deepLinkID: "browser-extensions"), .browserExtensions)
         XCTAssertNil(SidebarItem(deepLinkID: "nonsense"))
     }
 }
