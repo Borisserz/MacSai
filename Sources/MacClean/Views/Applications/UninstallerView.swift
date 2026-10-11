@@ -104,6 +104,10 @@ struct UninstallerView: View {
             }
         }
         .task { await loadApps() }
+        .onChange(of: appState.pendingUninstallerAppPath) { _, path in
+            guard let path else { return }
+            selectPendingApp(path: path)
+        }
         // Attached to the top-level body (not the conditionally-rendered
         // detail pane) so the confirmation can't be torn down mid-present
         // when selectedApp changes. `appPendingUninstall` is the anchor.
@@ -353,6 +357,19 @@ struct UninstallerView: View {
     private func loadApps() async {
         apps = await discovery.discoverApps()
         isLoading = false
+        if let path = appState.pendingUninstallerAppPath {
+            selectPendingApp(path: path)
+        }
+    }
+
+    private func selectPendingApp(path: String) {
+        guard let match = apps.first(where: {
+            $0.path.path(percentEncoded: false) == path
+        }) else { return }
+        selectedApp = match
+        loadAssociatedFiles(for: match)
+        filter = .all
+        appState.pendingUninstallerAppPath = nil
     }
 
     private func loadAssociatedFiles(for app: AppInfo) {

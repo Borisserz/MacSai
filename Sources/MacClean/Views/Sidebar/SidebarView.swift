@@ -31,6 +31,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case duplicates = "重复文件"
     case shredder = "文件粉碎"
 
+        case unusedApps = "未使用的应用"
+
     // Footer (pinned below the list, not rendered in any section)
     case settings = "设置"
 
@@ -57,6 +59,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .largeOldFiles: "large-old-files"
         case .duplicates: "duplicates"
         case .shredder: "shredder"
+        case .unusedApps: "unused-apps"
         case .settings: "settings"
         }
     }
@@ -85,6 +88,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .largeOldFiles: "doc.richtext"
         case .duplicates: "plus.square.on.square"
         case .shredder: "scissors"
+        case .unusedApps: "app.badge.checkmark"
         case .settings: "gearshape"
         }
     }
@@ -95,7 +99,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .systemJunk, .mailAttachments, .trashBins: .cleanup
         case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
-        case .uninstaller, .extensions, .updater: .applications
+        case .uninstaller, .unusedApps, .extensions, .updater: .applications
         case .spaceLens, .largeOldFiles, .duplicates, .shredder: .files
         case .settings: .settings
         }
@@ -107,7 +111,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .systemJunk, .mailAttachments, .trashBins: .cleanup
         case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
-        case .uninstaller, .extensions, .updater: .applications
+        case .uninstaller, .unusedApps, .extensions, .updater: .applications
         case .spaceLens, .largeOldFiles, .duplicates, .shredder: .files
         case .settings: .main
         }
