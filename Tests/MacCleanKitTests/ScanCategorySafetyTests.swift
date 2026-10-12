@@ -24,7 +24,7 @@ final class ScanCategorySafetyTests: AppLanguageTestCase {
             .universalBinaries, .deletedUsers, .languageFiles, .iosDeviceBackups,
             .documentVersions, .unusedDiskImages, .xcodeJunk, .trashBins,
             .mailAttachments, .browserPrivacy, .systemPrivacy,
-            .largeFiles, .oldFiles, .duplicates,
+            .largeFiles, .oldFiles, .duplicates, .projectJunk,
         ]
         for category in cautious {
             XCTAssertEqual(category.cleanupSafety, .reviewFirst, category.rawValue)

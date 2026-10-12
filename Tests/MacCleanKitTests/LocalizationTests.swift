@@ -208,6 +208,49 @@ final class LocalizationTests: AppLanguageTestCase {
         XCTAssertEqual(L10n.tr("新功能", "New feature"), "New feature")
     }
 
+    func testCleanHistoryIsTranslatedInEveryLanguage() {
+        // zhHans key, English, Russian: every static Clean History string.
+        let strings: [(String, String, String)] = [
+            ("清理历史", "Clean History", "История очистки"),
+            ("把最近一次清理整批恢复到原位置。已清空废纸篓或原路径已有文件的项会被跳过。", "Put a whole clean back in one click. Items already emptied from the Trash, or with a new file at their original place, are skipped.", "Верните"),
+            ("清除历史", "Clear History", "Очистить историю"),
+            ("还没有可恢复的清理记录", "No cleans to restore yet", "Пока нет"),
+            ("%ld 项", "%ld items", "%ld элементов"),
+            ("部分可恢复", "Partly restorable", "Частично"),
+            ("恢复", "Restore", "Восстановить"),
+            ("恢复这次清理？", "Restore this clean?", "Восстановить?"),
+            ("每一项都会放回原位置。原位置已有的文件绝不会被覆盖。", "Each item goes back to its original place. A file already at that place is never overwritten.", "Каждый"),
+            ("这次清理太大，只能恢复前 %ld 项。其余 %ld 项仍在废纸篓中，可在访达里手动放回。", "This clean was too large to track in full: only the first %ld items can be restored. The other %ld are still in the Trash, and you can put them back from Finder.", "Эта"),
+            ("恢复完成", "Restore finished", "Готово"),
+            ("已恢复：%ld", "Restored: %ld", "Восстановлено: %ld"),
+            ("已从废纸篓清空：%ld", "Already emptied from the Trash: %ld", "Уже: %ld"),
+            ("原位置已有文件，已跳过：%ld", "Skipped, original place taken: %ld", "Пропущено: %ld"),
+            ("无法恢复：%ld", "Couldn't restore: %ld", "Не удалось: %ld"),
+            ("清除清理历史？", "Clear clean history?", "Очистить?"),
+            ("清除", "Clear", "Очистить"),
+            ("这只会忘掉恢复记录，废纸篓里的文件不会被动。之后就不能一键恢复这些清理了。", "This only forgets the restore list. Nothing in the Trash is touched, but these cleans can no longer be restored in one click.", "Это"),
+        ]
+        for language in [AppLanguage.de, .fr] {
+            AppLanguage.current = language
+            for (zh, en, ru) in strings {
+                let value = L10n.tr(zh, en, ru)
+                XCTAssertNotEqual(value, en, "\(language) is missing: \(en)")
+                XCTAssertFalse(value.contains("—"), "no em dashes: \(value)")
+                XCTAssertEqual(value.components(separatedBy: "%ld").count, en.components(separatedBy: "%ld").count,
+                               "\(language) must keep every %ld placeholder: \(value)")
+            }
+        }
+        AppLanguage.current = .zhHant
+        XCTAssertEqual(L10n.tr("恢复这次清理？", "Restore this clean?", "?"), "恢復這次清理？")
+        XCTAssertEqual(L10n.tr("清除历史", "Clear History", "?"), "清除歷史")
+        XCTAssertEqual(L10n.tr("%ld 项", "%ld items", "?"), "%ld 項")
+        for (zh, _, _) in strings {
+            let value = L10n.tr(zh, "", "")
+            XCTAssertFalse(value.contains("恢复") || value.contains("废纸篓") || value.contains("历史"),
+                           "zh-Hant still shows Simplified text: \(value)")
+        }
+    }
+
     func testSupportCardIsTranslatedInEveryLanguage() {
         let expected: [AppLanguage: String] = [
             .de: "Spendier mir einen Kaffee",
@@ -221,5 +264,106 @@ final class LocalizationTests: AppLanguageTestCase {
             let title = L10n.tr("这次清理，你没花一分钱。", "That cleanup cost you nothing.", "Эта очистка не стоила вам ни копейки.")
             XCTAssertNotEqual(title, "That cleanup cost you nothing.", "\(language) title is untranslated")
         }
+    }
+
+    func testDiskHogsStringsAreTranslatedInEveryLanguage() {
+        AppLanguage.current = .en
+        let english = DiskHogsText.all
+        AppLanguage.current = .zhHans
+        let simplified = DiskHogsText.all
+        // Same word in the target language, not a missing translation.
+        let sameAsEnglish: Set<String> = ["Images", "Volumes"]
+        let sameAsSimplified: Set<String> = [
+            "容器", "卷", "大小", "取消", "永久清理", "清理完成", "未能完成", "已停止",
+        ]
+        for language in [AppLanguage.de, .fr, .ru] {
+            AppLanguage.current = language
+            for (index, value) in DiskHogsText.all.enumerated() where !sameAsEnglish.contains(english[index]) || language == .ru {
+                XCTAssertNotEqual(value, english[index], "\(language) is missing: \(english[index])")
+            }
+        }
+        AppLanguage.current = .zhHant
+        for (index, value) in DiskHogsText.all.enumerated() where !sameAsSimplified.contains(simplified[index]) {
+            XCTAssertNotEqual(value, simplified[index], "zh-Hant is missing: \(simplified[index])")
+        }
+        for language in AppLanguage.allCases {
+            AppLanguage.current = language
+            XCTAssertFalse(DiskHogsText.all.contains { $0.contains("\u{2014}") }, "\(language) has an em dash")
+        }
+    }
+
+    /// Every string on the Project Junk screen, as `ProjectJunkView` and
+    /// `ScanCategory.projectJunk` pass them to `L10n.tr`.
+    func testProjectJunkIsTranslatedInEveryLanguage() {
+        let strings: [(zh: String, en: String, ru: String)] = [
+            ("项目垃圾", "Project Junk", "Мусор проектов"),
+            ("代码项目中的依赖和构建文件夹。", "Dependency and build folders inside your code projects.", "Папки зависимостей и сборки внутри ваших проектов."),
+            ("项目中已安装的依赖和构建产物。运行项目的安装或构建命令即可找回；之后第一次构建会更慢。", "Installed dependencies and build output inside your projects. Running the project's install or build command brings them back; the first build afterwards takes longer.", "Установленные зависимости и результаты сборки внутри ваших проектов. Команда установки или сборки проекта вернёт их; первая сборка после этого займёт больше времени."),
+            ("选择项目文件夹（例如 ~/Code），查找 node_modules、venv、target、build 等可重建目录。", "Choose a projects folder (e.g. ~/Code) to find regenerable folders like node_modules, venvs, target, and build.", "Выберите папку с проектами (например ~/Code), чтобы найти восстанавливаемые каталоги вроде node_modules, venv, target и build."),
+            ("不会自动勾选。", "Nothing is auto-selected.", "Ничего не выбирается заранее."),
+            ("未找到项目垃圾", "No project junk found", "Мусор проектов не найден"),
+            ("请选择你的项目文件夹，而不是系统文件夹或资源库。", "Choose your projects folder, not a system folder or Library.", "Выберите папку с проектами, а не системную папку или Библиотеку."),
+            ("正在查找项目…", "Finding projects…", "Поиск проектов…"),
+            ("正在计算文件夹大小…", "Measuring folders…", "Подсчёт размера папок…"),
+        ]
+        for language in [AppLanguage.de, .fr, .zhHant, .ru] {
+            AppLanguage.current = language
+            for s in strings {
+                let text = L10n.tr(s.zh, s.en, s.ru)
+                XCTAssertNotEqual(text, s.en, "\"\(s.en)\" is untranslated in \(language.rawValue)")
+                XCTAssertFalse(text.contains("\u{2014}"), "\"\(s.en)\" has an em dash in \(language.rawValue)")
+                if language == .zhHant {
+                    // zh-Hant falls back to the Simplified source silently.
+                    XCTAssertNotEqual(text, s.zh, "\"\(s.en)\" is untranslated in zh-Hant")
+                }
+            }
+        }
+        AppLanguage.current = .en
+        for s in strings {
+            XCTAssertFalse(L10n.tr(s.zh, s.en, s.ru).contains("\u{2014}"), s.en)
+        }
+    }
+
+    func testUnusedAppsIsTranslatedInEveryLanguage() {
+        // Every user-facing Unused Apps string: (zhHans, English).
+        let strings: [(String, String)] = [
+            ("未使用的应用", "Unused Apps"),
+            ("3 个月", "3 months"),
+            ("6 个月", "6 months"),
+            ("12 个月", "12 months"),
+            ("按上次打开时间列出应用，并按占用空间排序。一键转到卸载器。",
+             "Apps you have not opened recently, sorted by how much space they use. One click hands them to the Uninstaller."),
+            ("时间", "Horizon"),
+            ("刷新", "Refresh"),
+            ("正在查找未使用的应用…", "Looking for unused apps…"),
+            ("没有符合条件的应用", "No unused apps in this window"),
+            ("后台", "Background"),
+            ("卸载…", "Uninstall…"),
+            ("未知", "Unknown"),
+            ("上次打开", "Last opened"),
+            ("支持文件", "Support files"),
+            ("Spotlight 没有应用的使用记录", "Spotlight has no usage history for your apps"),
+            ("无法判断哪些应用未被使用。请检查 Spotlight 索引是否已开启。",
+             "Mac Sai can't tell which apps are unused. Check that Spotlight indexing is turned on."),
+        ]
+        // Written the same in Simplified and Traditional Chinese.
+        let sameInTraditional: Set<String> = ["未知"]
+
+        for (zh, english) in strings {
+            for language in [AppLanguage.de, .fr] {
+                AppLanguage.current = language
+                XCTAssertNotEqual(L10n.tr(zh, english), english, "\(language) is missing \"\(english)\"")
+            }
+            guard !sameInTraditional.contains(zh) else { continue }
+            AppLanguage.current = .zhHant
+            XCTAssertNotEqual(L10n.tr(zh, english), zh, "zh-Hant is missing \"\(english)\"")
+        }
+
+        AppLanguage.current = .de
+        XCTAssertEqual(L10n.tr("后台", "Background"), "Hintergrund")
+        AppLanguage.current = .fr
+        XCTAssertEqual(L10n.tr("卸载…", "Uninstall…"), "Désinstaller…")
+        AppLanguage.current = .zhHant
+        XCTAssertEqual(L10n.tr("支持文件", "Support files"), "支援檔案")
     }
 }

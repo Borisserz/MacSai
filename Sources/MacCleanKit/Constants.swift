@@ -205,6 +205,8 @@ public enum MCConstants {
 
     public static let operationLogDir = userLogs.appending(path: "MacClean")
     public static let operationLogFile = operationLogDir.appending(path: "operations.log")
+    /// JSON history of Trash-first cleans for one-click Restore (#223).
+    public static let cleanHistoryFile = operationLogDir.appending(path: "clean-history.json")
 
     // MARK: - Project links
 
@@ -229,5 +231,5 @@ public enum MCConstants {
     // plugin was tried (commit history) but doesn't work under multi-arch
     // `swift build --arch arm64 --arch x86_64` because xcbuild doesn't
     // execute plugins.
-    public static let appVersion = "1.24.2"
+    public static let appVersion = "1.25.0"
 }
