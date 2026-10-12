@@ -265,4 +265,47 @@ final class LocalizationTests: AppLanguageTestCase {
             XCTAssertNotEqual(title, "That cleanup cost you nothing.", "\(language) title is untranslated")
         }
     }
+
+    func testUnusedAppsIsTranslatedInEveryLanguage() {
+        // Every user-facing Unused Apps string: (zhHans, English).
+        let strings: [(String, String)] = [
+            ("未使用的应用", "Unused Apps"),
+            ("3 个月", "3 months"),
+            ("6 个月", "6 months"),
+            ("12 个月", "12 months"),
+            ("按上次打开时间列出应用，并按占用空间排序。一键转到卸载器。",
+             "Apps you have not opened recently, sorted by how much space they use. One click hands them to the Uninstaller."),
+            ("时间", "Horizon"),
+            ("刷新", "Refresh"),
+            ("正在查找未使用的应用…", "Looking for unused apps…"),
+            ("没有符合条件的应用", "No unused apps in this window"),
+            ("后台", "Background"),
+            ("卸载…", "Uninstall…"),
+            ("未知", "Unknown"),
+            ("上次打开", "Last opened"),
+            ("支持文件", "Support files"),
+            ("Spotlight 没有应用的使用记录", "Spotlight has no usage history for your apps"),
+            ("无法判断哪些应用未被使用。请检查 Spotlight 索引是否已开启。",
+             "Mac Sai can't tell which apps are unused. Check that Spotlight indexing is turned on."),
+        ]
+        // Written the same in Simplified and Traditional Chinese.
+        let sameInTraditional: Set<String> = ["未知"]
+
+        for (zh, english) in strings {
+            for language in [AppLanguage.de, .fr] {
+                AppLanguage.current = language
+                XCTAssertNotEqual(L10n.tr(zh, english), english, "\(language) is missing \"\(english)\"")
+            }
+            guard !sameInTraditional.contains(zh) else { continue }
+            AppLanguage.current = .zhHant
+            XCTAssertNotEqual(L10n.tr(zh, english), zh, "zh-Hant is missing \"\(english)\"")
+        }
+
+        AppLanguage.current = .de
+        XCTAssertEqual(L10n.tr("后台", "Background"), "Hintergrund")
+        AppLanguage.current = .fr
+        XCTAssertEqual(L10n.tr("卸载…", "Uninstall…"), "Désinstaller…")
+        AppLanguage.current = .zhHant
+        XCTAssertEqual(L10n.tr("支持文件", "Support files"), "支援檔案")
+    }
 }

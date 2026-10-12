@@ -8,6 +8,9 @@ public final class AppState {
     let cleaningEngine = CleaningEngine()
     let scanResultsStore = ScanResultsStore()
 
+    /// Path of an app the Unused Apps module asked Uninstaller to open.
+    var pendingUninstallerAppPath: String?
+
     /// Bumped by the global ⌘R command; selected module views observe and scan.
     private(set) var scanShortcutNonce: UInt64 = 0
     /// Bumped by the global ⌘K command; selected module views observe and clean.
@@ -15,6 +18,11 @@ public final class AppState {
 
     func requestScanShortcut() { scanShortcutNonce &+= 1 }
     func requestCleanShortcut() { cleanShortcutNonce &+= 1 }
+
+    func openUninstaller(forAppPath path: String) {
+        pendingUninstallerAppPath = path
+        selectedSidebarItem = .uninstaller
+    }
 
     init() {
         registerModules()
