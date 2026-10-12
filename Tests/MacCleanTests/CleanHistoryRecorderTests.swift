@@ -1,46 +1,164 @@
 import XCTest
 @testable import MacClean
 @testable import MacCleanKit
+import MacCleanTestSupport
 
 final class CleanHistoryRecorderTests: XCTestCase {
-    func testRecordPersistsSessionAndRestoreMovesWhenSafe() throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appending(path: "clean-history-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer {
-            CleanHistoryRecorder.fileURL = MCConstants.cleanHistoryFile
-            try? FileManager.default.removeItem(at: dir)
-        }
+    private var dir: URL!
+    private var fakeTrash: URL!
+    private var savedFileURL: URL!
+    private var savedTrashRoot: URL!
 
-        let historyFile = dir.appending(path: "clean-history.json")
-        CleanHistoryRecorder.fileURL = historyFile
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appending(path: "clean-history-\(UUID().uuidString)")
+        fakeTrash = dir.appending(path: "Trash")
+        try FileManager.default.createDirectory(at: fakeTrash, withIntermediateDirectories: true)
+        savedFileURL = CleanHistoryRecorder.fileURL
+        savedTrashRoot = CleanHistoryRecorder.trashRoot
+        CleanHistoryRecorder.fileURL = dir.appending(path: "clean-history.json")
+        CleanHistoryRecorder.trashRoot = fakeTrash
+    }
 
-        let original = dir.appending(path: "Caches/com.example")
-        let trash = dir.appending(path: "Trash/com.example")
-        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
-        try "payload".write(to: trash.appending(path: "file.txt"), atomically: true, encoding: .utf8)
+    override func tearDown() {
+        CleanHistoryRecorder.fileURL = savedFileURL
+        CleanHistoryRecorder.trashRoot = savedTrashRoot
+        try? FileManager.default.removeItem(at: dir)
+    }
 
-        let session = CleanHistorySession(
-            id: UUID(),
-            date: Date(),
-            items: [
-                CleanHistoryItem(
-                    id: UUID(),
-                    originalPath: original.path(percentEncoded: false),
-                    trashPath: trash.path(percentEncoded: false),
-                    bytes: 7
-                )
-            ]
-        )
-        CleanHistoryRecorder.save([session])
+    /// Simulates `trashItem`: moves `original` into the fake Trash.
+    private func fakeTrashItem(_ original: URL, as name: String? = nil) throws -> CleaningEngine.TrashedItem {
+        let trashed = fakeTrash.appending(path: name ?? original.lastPathComponent)
+        try FileManager.default.moveItem(at: original, to: trashed)
+        return .init(originalURL: original, trashURL: trashed, bytes: 7)
+    }
 
-        let loaded = CleanHistoryRecorder.load()
-        XCTAssertEqual(loaded.count, 1)
-        XCTAssertEqual(loaded[0].items[0].originalPath, original.path(percentEncoded: false))
+    private func write(_ text: String, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func contents(_ url: URL) -> String? { try? String(contentsOf: url, encoding: .utf8) }
+
+    func testRestorePutsItemBackRecreatingParentAndDropsTheSession() throws {
+        let original = dir.appending(path: "Caches/com.example/file.txt")
+        try write("payload", to: original)
+        CleanHistoryRecorder.record(trashedItems: [try fakeTrashItem(original)])
+        try FileManager.default.removeItem(at: original.deletingLastPathComponent())
+
+        let session = try XCTUnwrap(CleanHistoryRecorder.load().first)
+        let summary = CleanHistoryRecorder.restore(session)
+
+        XCTAssertEqual(summary.restored, 1)
+        XCTAssertEqual(contents(original), "payload")
+        XCTAssertTrue(CleanHistoryRecorder.load().isEmpty, "a restored session must not be offered again")
+    }
+
+    func testNeverRestoresADifferentFileThatReusedTheTrashName() throws {
+        let originalA = dir.appending(path: "AppA/Cache.db")
+        try write("A", to: originalA)
+        CleanHistoryRecorder.record(trashedItems: [try fakeTrashItem(originalA)])
+        let session = try XCTUnwrap(CleanHistoryRecorder.load().first)
+
+        // The user empties the Trash, then a later clean trashes another
+        // Cache.db, which macOS gives the same Trash name.
+        try FileManager.default.removeItem(at: fakeTrash.appending(path: "Cache.db"))
+        let originalB = dir.appending(path: "AppB/Cache.db")
+        try write("B", to: originalB)
+        _ = try fakeTrashItem(originalB)
 
         let summary = CleanHistoryRecorder.restore(session)
+
+        XCTAssertEqual(summary.restored, 0)
+        XCTAssertEqual(summary.failed, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: originalA.path(percentEncoded: false)))
+        XCTAssertEqual(contents(fakeTrash.appending(path: "Cache.db")), "B")
+    }
+
+    func testTamperedTrashPathOutsideTheTrashIsRefused() throws {
+        let victim = dir.appending(path: "Documents/taxes.pdf")
+        try write("secret", to: victim)
+        let elsewhere = dir.appending(path: "Public/taxes.pdf")
+        let tampered = CleanHistorySession(id: UUID(), date: Date(), items: [
+            CleanHistoryItem(
+                id: UUID(),
+                originalPath: elsewhere.path(percentEncoded: false),
+                trashPath: victim.path(percentEncoded: false),
+                bytes: 1,
+                trashFileID: CleanHistoryRecorder.fileID(atPath: victim.path(percentEncoded: false))
+            ),
+        ])
+
+        let summary = CleanHistoryRecorder.restore(tampered)
+
+        XCTAssertEqual(summary.restored, 0)
+        XCTAssertEqual(summary.failed, 1)
+        XCTAssertEqual(contents(victim), "secret")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: elsewhere.path(percentEncoded: false)))
+    }
+
+    func testNeverOverwritesAFileThatReappeared() throws {
+        let original = dir.appending(path: "Caches/settings.plist")
+        try write("old", to: original)
+        CleanHistoryRecorder.record(trashedItems: [try fakeTrashItem(original)])
+        try write("new", to: original)
+
+        let summary = CleanHistoryRecorder.restore(try XCTUnwrap(CleanHistoryRecorder.load().first))
+
+        XCTAssertEqual(summary.reappeared, 1)
+        XCTAssertEqual(contents(original), "new")
+        XCTAssertEqual(contents(fakeTrash.appending(path: "settings.plist")), "old")
+        XCTAssertEqual(CleanHistoryRecorder.load().count, 1, "unrestored items stay restorable")
+    }
+
+    func testConcurrentRecordsKeepEverySession() async {
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<20 {
+                group.addTask {
+                    CleanHistoryRecorder.record(trashedItems: [
+                        .init(originalURL: URL(filePath: "/tmp/o\(i)"), trashURL: URL(filePath: "/tmp/t\(i)"), bytes: 1),
+                    ])
+                }
+            }
+        }
+        XCTAssertEqual(CleanHistoryRecorder.load().count, 20)
+    }
+
+    /// End to end through the real engine and the real Trash, like
+    /// CleaningEngineTests: trash a temp file, then Restore it.
+    func testEngineTrashThenRestoreRoundTrip() async throws {
+        CleanHistoryRecorder.trashRoot = MCConstants.userTrash
+        let cacheDir = MCConstants.userCaches.appending(path: "MacCleanTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: cacheDir) }
+        let file = cacheDir.appending(path: "restore-me.cache")
+        try TestFixtures.writeFile(at: file, size: 321)
+
+        let result = await CleaningEngine().clean(
+            items: [FileItem(url: file, name: file.lastPathComponent, size: 321, allocatedSize: 321, isDirectory: false)],
+            mode: .trash
+        )
+        XCTAssertEqual(result.trashedItems.count, 1)
+        CleanHistoryRecorder.record(trashedItems: result.trashedItems)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path(percentEncoded: false)))
+
+        let summary = CleanHistoryRecorder.restore(try XCTUnwrap(CleanHistoryRecorder.load().first))
+
         XCTAssertEqual(summary.restored, 1)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: original.appending(path: "file.txt").path(percentEncoded: false)))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: trash.path(percentEncoded: false)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path(percentEncoded: false)))
+    }
+
+    func testPermanentCleanRecordsNothingToRestore() async throws {
+        let cacheDir = MCConstants.userCaches.appending(path: "MacCleanTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: cacheDir) }
+        let file = cacheDir.appending(path: "gone.cache")
+        try TestFixtures.writeFile(at: file, size: 10)
+
+        let result = await CleaningEngine().clean(
+            items: [FileItem(url: file, name: file.lastPathComponent, size: 10, allocatedSize: 10, isDirectory: false)],
+            mode: .permanent
+        )
+        XCTAssertEqual(result.removedCount, 1)
+        XCTAssertTrue(result.trashedItems.isEmpty)
     }
 }

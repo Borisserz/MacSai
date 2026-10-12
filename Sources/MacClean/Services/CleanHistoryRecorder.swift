@@ -3,13 +3,25 @@ import MacCleanKit
 
 /// Persists whole-clean sessions so the user can Restore in one click.
 public enum CleanHistoryRecorder {
-    /// Override in tests; defaults to the user's clean-history JSON.
-    nonisolated(unsafe) public static var fileURL: URL = MCConstants.cleanHistoryFile
+    /// Override in tests. Under XCTest it defaults to a temp file so the
+    /// suite's real trash cleans never land in the developer's own history.
+    nonisolated(unsafe) public static var fileURL: URL = NSClassFromString("XCTestCase") != nil
+        ? FileManager.default.temporaryDirectory
+            .appending(path: "macsai-test-clean-history-\(ProcessInfo.processInfo.processIdentifier).json")
+        : MCConstants.cleanHistoryFile
+    /// Override in tests; the user's Trash in production.
+    nonisolated(unsafe) public static var trashRoot: URL = MCConstants.userTrash
+
+    /// Serializes load-modify-save so two cleans finishing together can't
+    /// drop each other's session.
+    private static let lock = NSLock()
 
     public static func load() -> [CleanHistorySession] {
-        let url = fileURL
-        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)),
-              let data = try? Data(contentsOf: url),
+        lock.withLock { unlockedLoad() }
+    }
+
+    private static func unlockedLoad() -> [CleanHistorySession] {
+        guard let data = try? Data(contentsOf: fileURL),
               let sessions = try? CleanHistoryStore.decode(data)
         else { return [] }
         return sessions
@@ -24,45 +36,90 @@ public enum CleanHistoryRecorder {
             id: UUID(),
             date: now,
             items: trashedItems.map {
-                CleanHistoryItem(
+                let trashPath = $0.trashURL.path(percentEncoded: false)
+                return CleanHistoryItem(
                     id: UUID(),
                     originalPath: $0.originalURL.path(percentEncoded: false),
-                    trashPath: $0.trashURL.path(percentEncoded: false),
-                    bytes: $0.bytes
+                    trashPath: trashPath,
+                    bytes: $0.bytes,
+                    trashFileID: fileID(atPath: trashPath)
                 )
             }
         )
-        let updated = CleanHistoryStore.adding(session, to: load())
-        save(updated)
+        lock.withLock {
+            unlockedSave(CleanHistoryStore.adding(session, to: unlockedLoad()))
+        }
     }
 
     public static func save(_ sessions: [CleanHistorySession]) {
+        lock.withLock { unlockedSave(sessions) }
+    }
+
+    private static func unlockedSave(_ sessions: [CleanHistorySession]) {
         let url = fileURL
-        let dir = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard let data = try? CleanHistoryStore.encode(sessions) else { return }
         try? data.write(to: url, options: .atomic)
     }
 
-    /// Applies a restore plan: move trash items back when safe.
+    /// Puts a session's items back where they were. Each item is validated
+    /// first, never overwrites anything (`moveItem` fails on an existing
+    /// destination), and only items that actually moved are counted and
+    /// dropped from the history. Blocking: call off the main thread.
     @discardableResult
     public static func restore(_ session: CleanHistorySession) -> CleanHistoryRestoreSummary {
         let fm = FileManager.default
-        let summary = CleanHistoryRestore.summarize(session: session) {
-            fm.fileExists(atPath: $0)
+        let root = trashRoot.path(percentEncoded: false)
+        let uid = getuid()
+        var summary = CleanHistoryRestoreSummary()
+
+        for item in session.items {
+            let recordedID = item.trashFileID
+            let isSafe = CleanHistoryRestore.isInsideTrash(item.trashPath, trashRoot: root, uid: uid)
+                && CleanHistoryRestore.isRestorableDestination(item.originalPath, trashRoot: root, uid: uid)
+                && recordedID != nil && fileID(atPath: item.trashPath) == recordedID
+                && (try? SafetyGuard().validatePath(URL(filePath: item.originalPath), excludedFolders: [])) != nil
+            let action = CleanHistoryRestore.plan(
+                item: item,
+                trashExists: fileID(atPath: item.trashPath) != nil,
+                originalExists: fileID(atPath: item.originalPath) != nil,
+                isSafe: isSafe
+            )
+            switch action {
+            case .skippedEmptied:
+                summary.emptied += 1
+            case .skippedReappeared:
+                summary.reappeared += 1
+            case .skippedUnsafe:
+                summary.failed += 1
+            case .restore(let from, let to):
+                let destination = URL(filePath: to)
+                do {
+                    try fm.createDirectory(
+                        at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.moveItem(at: URL(filePath: from), to: destination)
+                    summary.restored += 1
+                    summary.restoredItemIDs.insert(item.id)
+                } catch {
+                    summary.failed += 1
+                }
+            }
         }
-        for move in summary.moves {
-            let from = URL(filePath: move.from)
-            let to = URL(filePath: move.to)
-            let parent = to.deletingLastPathComponent()
-            try? fm.createDirectory(at: parent, withIntermediateDirectories: true)
-            do {
-                try fm.moveItem(at: from, to: to)
-            } catch {
-                // Best-effort: leave the trash copy if restore fails.
-                continue
+
+        if !summary.restoredItemIDs.isEmpty {
+            lock.withLock {
+                unlockedSave(CleanHistoryStore.removing(itemIDs: summary.restoredItemIDs, from: unlockedLoad()))
             }
         }
         return summary
+    }
+
+    /// Inode of the item at `path` without following a final symlink, or nil
+    /// when nothing is there.
+    static func fileID(atPath path: String) -> UInt64? {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        return UInt64(info.st_ino)
     }
 }

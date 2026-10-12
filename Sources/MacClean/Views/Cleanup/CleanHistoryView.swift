@@ -88,9 +88,14 @@ struct CleanHistoryView: View {
                 let target = session
                 pendingRestore = nil
                 isRestoring = true
-                lastSummary = CleanHistoryRecorder.restore(target)
-                sessions = CleanHistoryRecorder.load()
-                isRestoring = false
+                // File moves and stats stay off the main thread.
+                Task {
+                    let summary = await Task.detached { CleanHistoryRecorder.restore(target) }.value
+                    let reloaded = await Task.detached { CleanHistoryRecorder.load() }.value
+                    lastSummary = summary
+                    sessions = reloaded
+                    isRestoring = false
+                }
             }
         } message: { session in
             Text(L10n.tr(
@@ -110,9 +115,9 @@ struct CleanHistoryView: View {
         } message: {
             if let lastSummary {
                 Text(L10n.tr(
-                    "已恢复 \(lastSummary.restored)，废纸篓已清空 \(lastSummary.emptied)，原路径已占用 \(lastSummary.reappeared)。",
-                    "Restored \(lastSummary.restored), emptied from Trash \(lastSummary.emptied), original path reappeared \(lastSummary.reappeared).",
-                    "Восстановлено: \(lastSummary.restored), уже удалено из Корзины: \(lastSummary.emptied), путь занят: \(lastSummary.reappeared)."
+                    "已恢复 \(lastSummary.restored)，废纸篓已清空 \(lastSummary.emptied)，原路径已占用 \(lastSummary.reappeared)，无法恢复 \(lastSummary.failed)。",
+                    "Restored \(lastSummary.restored), emptied from Trash \(lastSummary.emptied), original path reappeared \(lastSummary.reappeared), couldn't restore \(lastSummary.failed).",
+                    "Восстановлено: \(lastSummary.restored), уже удалено из Корзины: \(lastSummary.emptied), путь занят: \(lastSummary.reappeared), не удалось: \(lastSummary.failed)."
                 ))
             }
         }
