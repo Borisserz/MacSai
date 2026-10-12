@@ -7,12 +7,21 @@ public struct ProjectTreeNode: Equatable, Sendable {
     public let bytes: UInt64
     public let modified: Date?
     public let childNames: [String]
+    /// Lines of this folder's `.gitignore`, when it has one.
+    public let gitignoreLines: [String]
 
-    public init(path: String, bytes: UInt64, modified: Date?, childNames: [String]) {
+    public init(
+        path: String,
+        bytes: UInt64,
+        modified: Date?,
+        childNames: [String],
+        gitignoreLines: [String] = []
+    ) {
         self.path = path
         self.bytes = bytes
         self.modified = modified
         self.childNames = childNames
+        self.gitignoreLines = gitignoreLines
     }
 
     public var name: String { (path as NSString).lastPathComponent }
@@ -118,7 +127,9 @@ public enum ProjectJunkFinder {
         case ".next" where !siblings.isDisjoint(with: nodeMarkers):
             return .nextBuild
         case "dist" where !siblings.isDisjoint(with: nodeMarkers):
-            return .dist
+            // Some projects commit dist/ (GitHub Actions ship it), so only
+            // list it when git is told to ignore it.
+            return isGitIgnored(node, byPath: byPath) ? .dist : nil
         case "target":
             if !siblings.isDisjoint(with: rustMarkers) { return .rustTarget }
             if !siblings.isDisjoint(with: mavenMarkers) { return .mavenBuild }
@@ -131,9 +142,49 @@ public enum ProjectJunkFinder {
             guard node.childNames.contains("pyvenv.cfg") else { return nil }
             return siblings.isDisjoint(with: pythonMarkers) ? nil : .pythonVenv
         case "Pods" where !siblings.isDisjoint(with: podsMarkers):
-            return .cocoaPods
+            // Many iOS repos commit Pods/ on purpose.
+            return isGitIgnored(node, byPath: byPath) ? .cocoaPods : nil
         default:
             return nil
         }
+    }
+
+    /// Whether a `.gitignore` in the project, or in a folder above it up to
+    /// the repository root, names this folder. Simple line matching only:
+    /// `dist`, `dist/`, `/dist`, `**/dist`, `dist/*`, `dist/**`. A pattern
+    /// with a leading slash only applies to the folder holding that file.
+    /// Anything unmatched counts as not ignored, so the folder is left alone.
+    static func isGitIgnored(_ node: ProjectTreeNode, byPath: [String: ProjectTreeNode]) -> Bool {
+        var dirPath = (node.path as NSString).deletingLastPathComponent
+        var isProjectFolder = true
+        while let dir = byPath[dirPath] {
+            for line in dir.gitignoreLines
+            where gitignoreLine(line, names: node.name, anchoredHere: isProjectFolder) {
+                return true
+            }
+            // A .gitignore above the repository root does not apply.
+            if dir.childNames.contains(".git") { break }
+            let parent = (dirPath as NSString).deletingLastPathComponent
+            if parent == dirPath { break }
+            dirPath = parent
+            isProjectFolder = false
+        }
+        return false
+    }
+
+    static func gitignoreLine(_ rawLine: String, names name: String, anchoredHere: Bool) -> Bool {
+        var line = rawLine.trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("!") else { return false }
+        for suffix in ["/**", "/*", "/"] where line.hasSuffix(suffix) {
+            line.removeLast(suffix.count)
+            break
+        }
+        if line.hasPrefix("**/") {
+            line.removeFirst(3)
+        } else if line.hasPrefix("/") {
+            guard anchoredHere else { return false }
+            line.removeFirst()
+        }
+        return line == name
     }
 }

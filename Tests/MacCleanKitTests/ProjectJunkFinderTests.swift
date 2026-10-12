@@ -5,7 +5,8 @@ final class ProjectJunkFinderTests: XCTestCase {
     func testFindsRegenerableFoldersAndNeverTheProjectItself() {
         let root = "/Users/me/Code"
         let nodes = [
-            dir("\(root)/web", children: ["package.json", "node_modules", ".next", "dist", "src"]),
+            dir("\(root)/web", children: ["package.json", "node_modules", ".next", "dist", "src", ".gitignore"],
+                gitignore: ["node_modules", "dist/"]),
             dir("\(root)/web/node_modules", bytes: 500, children: ["left-pad"]),
             dir("\(root)/web/.next", bytes: 80, children: ["cache"]),
             dir("\(root)/web/dist", bytes: 20, children: ["index.js"]),
@@ -17,7 +18,7 @@ final class ProjectJunkFinderTests: XCTestCase {
             dir("\(root)/android/build", bytes: 40, children: ["outputs"]),
             dir("\(root)/java", children: ["pom.xml", "target"]),
             dir("\(root)/java/target", bytes: 15, children: ["classes"]),
-            dir("\(root)/ios", children: ["Podfile", "Pods"]),
+            dir("\(root)/ios", children: ["Podfile", "Pods", ".gitignore"], gitignore: ["Pods/"]),
             dir("\(root)/ios/Pods", bytes: 200, children: ["Headers"]),
         ]
         let found = ProjectJunkFinder.find(nodes: nodes)
@@ -87,12 +88,86 @@ final class ProjectJunkFinderTests: XCTestCase {
         XCTAssertEqual(found[0].projectPath, "/Code/tool")
     }
 
+    // MARK: - dist and Pods need a .gitignore entry
+
+    /// GitHub Actions and some libraries commit dist/, and many iOS repos
+    /// commit Pods/. Without a .gitignore entry they are someone's source.
+    func testCommittedDistAndPodsAreNeverListed() {
+        let nodes = [
+            dir("/Code/action", children: ["package.json", "dist", ".git"]),
+            dir("/Code/action/dist", bytes: 50, children: ["index.js"]),
+            dir("/Code/app", children: ["Podfile", "Pods", ".gitignore", ".git"], gitignore: ["build/", "*.xcuserstate"]),
+            dir("/Code/app/Pods", bytes: 70, children: ["Headers"]),
+        ]
+        XCTAssertTrue(ProjectJunkFinder.find(nodes: nodes).isEmpty)
+    }
+
+    func testIgnoredDistAndPodsAreListed() {
+        for line in ["dist", "dist/", "/dist", "**/dist", "dist/*", "dist/**", "  dist/  "] {
+            let nodes = [
+                dir("/Code/web", children: ["package.json", "dist", ".gitignore"], gitignore: ["# build output", line]),
+                dir("/Code/web/dist", bytes: 5, children: ["main.js"]),
+            ]
+            XCTAssertEqual(ProjectJunkFinder.find(nodes: nodes).map(\.kind), [.dist], "pattern \"\(line)\"")
+        }
+        let pods = [
+            dir("/Code/ios", children: ["Podfile", "Pods", ".gitignore"], gitignore: ["/Pods/"]),
+            dir("/Code/ios/Pods", bytes: 5, children: ["Headers"]),
+        ]
+        XCTAssertEqual(ProjectJunkFinder.find(nodes: pods).map(\.kind), [.cocoaPods])
+    }
+
+    /// Monorepos usually ignore dist once, at the repository root.
+    func testRepositoryRootGitignoreCoversNestedPackages() {
+        let nodes = [
+            dir("/Code/mono", children: ["package.json", "packages", ".gitignore", ".git"], gitignore: ["dist"]),
+            dir("/Code/mono/packages", children: ["ui"]),
+            dir("/Code/mono/packages/ui", children: ["package.json", "dist"]),
+            dir("/Code/mono/packages/ui/dist", bytes: 5, children: ["index.js"]),
+        ]
+        XCTAssertEqual(ProjectJunkFinder.find(nodes: nodes).map(\.path), ["/Code/mono/packages/ui/dist"])
+    }
+
+    /// `/dist` only means the dist folder next to that .gitignore.
+    func testAnchoredPatternDoesNotCoverNestedPackages() {
+        let nodes = [
+            dir("/Code/mono", children: ["package.json", "packages", ".gitignore", ".git"], gitignore: ["/dist"]),
+            dir("/Code/mono/packages", children: ["ui"]),
+            dir("/Code/mono/packages/ui", children: ["package.json", "dist"]),
+            dir("/Code/mono/packages/ui/dist", bytes: 5, children: ["index.js"]),
+        ]
+        XCTAssertTrue(ProjectJunkFinder.find(nodes: nodes).isEmpty)
+    }
+
+    /// A .gitignore outside the project's repository says nothing about it.
+    func testGitignoreAboveTheRepositoryRootIsIgnored() {
+        let nodes = [
+            dir("/Code", children: ["lib", ".gitignore"], gitignore: ["dist"]),
+            dir("/Code/lib", children: ["package.json", "dist", ".git"]),
+            dir("/Code/lib/dist", bytes: 5, children: ["index.js"]),
+        ]
+        XCTAssertTrue(ProjectJunkFinder.find(nodes: nodes).isEmpty)
+    }
+
+    func testNegatedAndCommentedLinesDoNotCount() {
+        for line in ["!dist", "# dist", "dist/index.js", "distribution", "src/dist"] {
+            XCTAssertFalse(
+                ProjectJunkFinder.gitignoreLine(line, names: "dist", anchoredHere: true),
+                "pattern \"\(line)\""
+            )
+        }
+    }
+
     private func dir(
         _ path: String,
         bytes: UInt64 = 0,
         modified: Date? = nil,
-        children: [String]
+        children: [String],
+        gitignore: [String] = []
     ) -> ProjectTreeNode {
-        ProjectTreeNode(path: path, bytes: bytes, modified: modified, childNames: children)
+        ProjectTreeNode(
+            path: path, bytes: bytes, modified: modified,
+            childNames: children, gitignoreLines: gitignore
+        )
     }
 }

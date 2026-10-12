@@ -39,6 +39,9 @@ public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
     case oldFiles = "old_files"
     case duplicates = "duplicates"
 
+    // Projects
+    case projectJunk = "project_junk"
+
     public var id: String { rawValue }
 
     public var displayName: String {
@@ -71,6 +74,7 @@ public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
         case .largeFiles: L10n.tr("大文件", "Large Files", "Большие файлы")
         case .oldFiles: L10n.tr("旧文件", "Old Files", "Старые файлы")
         case .duplicates: L10n.tr("重复文件", "Duplicates", "Дубликаты")
+        case .projectJunk: L10n.tr("项目垃圾", "Project Junk", "Мусор проектов")
         }
     }
 
@@ -105,6 +109,7 @@ public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
         case .largeFiles: L10n.tr("占用空间最多的文件。", "The files taking up the most space.", "Файлы, занимающие больше всего места.")
         case .oldFiles: L10n.tr("长时间未打开的文件。", "Files you haven't opened in a long time.", "Файлы, которые давно не открывались.")
         case .duplicates: L10n.tr("同一文件的相同副本。", "Identical copies of the same file.", "Идентичные копии одного файла.")
+        case .projectJunk: L10n.tr("代码项目中的依赖和构建文件夹。", "Dependency and build folders inside your code projects.", "Папки зависимостей и сборки внутри ваших проектов.")
         }
     }
 
@@ -156,7 +161,8 @@ public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
             .safeToRemove
         case .languageFiles, .documentVersions, .iosDeviceBackups, .universalBinaries,
              .xcodeJunk, .deletedUsers, .unusedDiskImages, .mailAttachments, .trashBins,
-             .malware, .browserPrivacy, .systemPrivacy, .largeFiles, .oldFiles, .duplicates:
+             .malware, .browserPrivacy, .systemPrivacy, .largeFiles, .oldFiles, .duplicates,
+             .projectJunk:
             .reviewFirst
         }
     }
@@ -193,6 +199,7 @@ public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
         case .largeFiles: L10n.tr("你自己的文件，仅按大小挑选。这里没有任何东西天生就是垃圾；请逐个检查。", "Your own files, picked only by size. Nothing here is junk by definition; check each one.", "Ваши собственные файлы, отобранные только по размеру. Мусором они не являются по определению; проверьте каждый.")
         case .oldFiles: L10n.tr("很久没打开过的你自己的文件。旧并不代表不需要；请逐个检查。", "Your own files you haven't opened in a long time. Old doesn't mean unneeded; check each one.", "Ваши файлы, которые давно не открывались. Старый — не значит ненужный; проверьте каждый.")
         case .duplicates: L10n.tr("逐字节完全相同的副本。每个需要的文件请至少保留一份。", "Byte-for-byte identical copies. Keep at least one copy of each file you need.", "Побайтово идентичные копии. Оставьте хотя бы одну копию каждого нужного файла.")
+        case .projectJunk: L10n.tr("项目中已安装的依赖和构建产物。运行项目的安装或构建命令即可找回；之后第一次构建会更慢。", "Installed dependencies and build output inside your projects. Running the project's install or build command brings them back; the first build afterwards takes longer.", "Установленные зависимости и результаты сборки внутри ваших проектов. Команда установки или сборки проекта вернёт их; первая сборка после этого займёт больше времени.")
         }
     }
 
@@ -223,12 +230,13 @@ public enum ScanCategory: String, CaseIterable, Identifiable, Sendable {
         case .largeFiles: "arrow.up.right.square"
         case .oldFiles: "clock.arrow.circlepath"
         case .duplicates: "plus.square.on.square"
+        case .projectJunk: "chevron.left.forwardslash.chevron.right"
         }
     }
 
     public var autoSelect: Bool {
         switch self {
-        case .unusedDiskImages, .largeFiles, .oldFiles, .duplicates,
+        case .unusedDiskImages, .largeFiles, .oldFiles, .duplicates, .projectJunk,
              .universalBinaries, .appLeftovers, .deletedUsers,
              .packageManagerCaches, .ideCaches, .aiToolCaches:
             // appLeftovers: deletes another app's leftover data; detection is

@@ -5,7 +5,12 @@ import UniformTypeIdentifiers
 
 struct ProjectJunkView: View {
     @Environment(AppState.self) private var appState
+    /// The folder being scanned. Cleared on reset, so every new scan starts
+    /// by asking which folder to look in.
     @State private var rootURL: URL?
+    /// Whether `rootURL` holds an open security-scoped access to balance.
+    @State private var isAccessingRoot = false
+    @State private var rootRefused = false
     @State private var results: [ScanResult] = []
     @State private var selectedItems: Set<URL> = []
     @State private var isScanning = false
@@ -15,17 +20,26 @@ struct ProjectJunkView: View {
     @State private var completion: CleanSummary?
     @State private var cleaning: CleaningEngine.Progress?
     @State private var cleanTask: Task<Void, Never>?
+    @State private var scanTask: Task<Void, Never>?
+    /// Bumped by every scan and reset; a scan only publishes its results if
+    /// the generation it started with is still current.
+    @State private var scanGeneration = 0
     @State private var showPicker = false
 
     private let scanner = ProjectJunkScanner()
 
+    private static var findingPhase: String {
+        L10n.tr("正在查找项目…", "Finding projects…", "Поиск проектов…")
+    }
+
+    private static var measuringPhase: String {
+        L10n.tr("正在计算文件夹大小…", "Measuring folders…", "Подсчёт размера папок…")
+    }
+
     private var subtitle: String {
         if let rootURL {
-            return L10n.tr(
-                "扫描范围：\(rootURL.path(percentEncoded: false))。不会自动勾选。",
-                "Scanning \(rootURL.path(percentEncoded: false)). Nothing is auto-selected.",
-                "Область: \(rootURL.path(percentEncoded: false)). Ничего не выбирается заранее."
-            )
+            let noAutoSelect = L10n.tr("不会自动勾选。", "Nothing is auto-selected.", "Ничего не выбирается заранее.")
+            return "\(rootURL.path(percentEncoded: false)) · \(noAutoSelect)"
         }
         return L10n.tr(
             "选择项目文件夹（例如 ~/Code），查找 node_modules、venv、target、build 等可重建目录。",
@@ -34,14 +48,23 @@ struct ProjectJunkView: View {
         )
     }
 
+    private var emptyMessage: String {
+        if rootRefused {
+            return L10n.tr(
+                "请选择你的项目文件夹，而不是系统文件夹或资源库。",
+                "Choose your projects folder, not a system folder or Library.",
+                "Выберите папку с проектами, а не системную папку или Библиотеку."
+            )
+        }
+        return L10n.tr("未找到项目垃圾", "No project junk found", "Мусор проектов не найден")
+    }
+
     var body: some View {
         ModuleContainerView(
             title: L10n.tr("项目垃圾", "Project Junk", "Мусор проектов"),
             subtitle: subtitle,
             theme: .cleanup,
-            emptyMessage: rootURL == nil
-                ? L10n.tr("点击扫描以选择项目文件夹", "Click Scan to choose a projects folder", "Нажмите «Сканировать», чтобы выбрать папку")
-                : L10n.tr("未找到项目垃圾", "No project junk found", "Мусор проектов не найден"),
+            emptyMessage: emptyMessage,
             results: results,
             selectedItems: $selectedItems,
             isScanning: isScanning,
@@ -50,7 +73,7 @@ struct ProjectJunkView: View {
             scanComplete: scanComplete,
             completion: completion,
             cleaning: cleaning,
-            onScan: beginScan,
+            onScan: { showPicker = true },
             onClean: clean,
             onCancelClean: { cleanTask?.cancel() },
             onReset: reset
@@ -61,38 +84,74 @@ struct ProjectJunkView: View {
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
-                _ = url.startAccessingSecurityScopedResource()
-                rootURL = url
                 runScan(root: url)
             }
         }
-    }
-
-    private func beginScan() {
-        if rootURL == nil {
-            showPicker = true
-            return
+        .onDisappear {
+            // A scan cut short has nothing to show: drop it and its folder
+            // access. Finished results stay until Done or a new scan.
+            if isScanning { reset() }
         }
-        runScan(root: rootURL!)
     }
 
     private func runScan(root: URL) {
-        isScanning = true
-        scanComplete = false
-        scanProgress = 0.2
-        scanPhase = L10n.tr("正在扫描项目…", "Scanning projects…", "Сканирование проектов…")
+        cancelScan()
+        releaseRoot()
+        rootURL = root
+        isAccessingRoot = root.startAccessingSecurityScopedResource()
+        rootRefused = !ProjectJunkScanner.isAllowedRoot(root)
         results = []
         selectedItems = []
-        Task {
-            let items = await Task.detached {
-                ProjectJunkScanner().scan(root: root)
-            }.value
+        completion = nil
+        scanComplete = false
+        if rootRefused {
+            scanComplete = true
+            return
+        }
+
+        scanGeneration += 1
+        let generation = scanGeneration
+        isScanning = true
+        scanProgress = 0.05
+        scanPhase = Self.findingPhase
+        let scanner = scanner
+        scanTask = Task {
+            let worker = Task.detached(priority: .userInitiated) {
+                scanner.scan(root: root) { fraction in
+                    Task { @MainActor in
+                        guard generation == scanGeneration else { return }
+                        scanProgress = max(scanProgress, fraction)
+                        scanPhase = Self.measuringPhase
+                    }
+                }
+            }
+            let items = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            // A reset or a newer scan made this one stale: drop its results.
+            guard !Task.isCancelled, generation == scanGeneration else { return }
             results = scanner.asScanResults(items)
             selectedItems = []
             scanProgress = 1
             isScanning = false
             scanComplete = true
         }
+    }
+
+    private func cancelScan() {
+        scanGeneration += 1
+        scanTask?.cancel()
+        scanTask = nil
+        isScanning = false
+    }
+
+    private func releaseRoot() {
+        if isAccessingRoot, let rootURL {
+            rootURL.stopAccessingSecurityScopedResource()
+        }
+        isAccessingRoot = false
     }
 
     private func clean() {
@@ -121,6 +180,12 @@ struct ProjectJunkView: View {
     }
 
     private func reset() {
-        results = []; selectedItems = []; completion = nil; cleaning = nil; cleanTask = nil; scanComplete = false
+        cancelScan()
+        releaseRoot()
+        rootURL = nil
+        rootRefused = false
+        results = []; selectedItems = []; completion = nil; cleaning = nil; cleanTask = nil
+        scanProgress = 0
+        scanComplete = false
     }
 }

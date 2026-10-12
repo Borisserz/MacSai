@@ -31,7 +31,9 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case duplicates = "重复文件"
     case shredder = "文件粉碎"
 
-        case projectJunk = "项目垃圾"
+    // Listed under Cleanup (see `section`); declared last so it doesn't
+    // shift the Cmd+1...9 shortcuts of the items above.
+    case projectJunk = "项目垃圾"
 
     // Footer (pinned below the list, not rendered in any section)
     case settings = "设置"

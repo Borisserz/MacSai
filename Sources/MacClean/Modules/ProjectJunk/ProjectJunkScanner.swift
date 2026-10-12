@@ -14,20 +14,35 @@ public struct ProjectJunkScanner: Sendable {
     /// .cache, ...) is skipped during the walk.
     private static let hiddenJunkNames: Set<String> = [".next", ".venv"]
 
-    public func scan(root: URL, maxDepth: Int = 6) -> [ProjectJunkItem] {
+    /// Share of the progress bar spent walking the folder tree; measuring the
+    /// matched folders fills the rest.
+    static let walkShare = 0.4
+
+    /// `onProgress` gets 0...1: `walkShare` once the walk is done, then one
+    /// step per matched folder as its size is measured.
+    public func scan(
+        root: URL,
+        maxDepth: Int = 6,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) -> [ProjectJunkItem] {
         guard Self.isAllowedRoot(root) else { return [] }
         let nodes = collectNodes(root: root, maxDepth: maxDepth)
+        let matches = ProjectJunkFinder.find(nodes: nodes)
+        onProgress?(Self.walkShare)
         // Size only the matches, never every folder on the way down.
-        return ProjectJunkFinder.find(nodes: nodes).compactMap { item in
-            if Task.isCancelled { return nil }
-            return ProjectJunkItem(
+        var items: [ProjectJunkItem] = []
+        for (index, item) in matches.enumerated() {
+            if Task.isCancelled { return [] }
+            items.append(ProjectJunkItem(
                 path: item.path,
                 projectPath: item.projectPath,
                 kind: item.kind,
                 bytes: Self.directoryBytes(URL(filePath: item.path, directoryHint: .isDirectory)),
                 projectModified: item.projectModified
-            )
+            ))
+            onProgress?(Self.walkShare + (1 - Self.walkShare) * Double(index + 1) / Double(matches.count))
         }
+        return items
     }
 
     /// Refuses roots where a "build" or "target" folder belongs to the OS or
@@ -62,7 +77,7 @@ public struct ProjectJunkScanner: Sendable {
         }
         return [
             ScanResult(
-                category: .packageManagerCaches,
+                category: .projectJunk,
                 items: files,
                 autoSelect: false
             )
@@ -109,7 +124,24 @@ public struct ProjectJunkScanner: Sendable {
     private func node(path: String, url: URL, fm: FileManager) -> ProjectTreeNode {
         let children = (try? fm.contentsOfDirectory(atPath: path)) ?? []
         let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-        return ProjectTreeNode(path: path, bytes: 0, modified: modified, childNames: children)
+        return ProjectTreeNode(
+            path: path,
+            bytes: 0,
+            modified: modified,
+            childNames: children,
+            gitignoreLines: children.contains(".gitignore") ? Self.gitignoreLines(in: path) : []
+        )
+    }
+
+    /// Reads a folder's .gitignore, capped so a huge generated file can't
+    /// stall the scan.
+    private static func gitignoreLines(in directory: String) -> [String] {
+        let path = (directory as NSString).appendingPathComponent(".gitignore")
+        guard let handle = FileHandle(forReadingAtPath: path) else { return [] }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 256 * 1024),
+              let text = String(data: data, encoding: .utf8) else { return [] }
+        return text.components(separatedBy: .newlines)
     }
 
     /// Counts hidden files too: pnpm keeps the whole store in node_modules/.pnpm.
