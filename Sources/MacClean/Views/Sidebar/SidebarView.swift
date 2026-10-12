@@ -22,6 +22,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
 
     // Applications
     case uninstaller = "卸载器"
+    case unusedApps = "未使用的应用"
     case extensions = "扩展"
     case updater = "应用更新"
 
@@ -33,6 +34,12 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
 
     // Cleanup, declared last so the ⌘1…⌘9 shortcuts above keep their digits
     case diskHogs = "开发者磁盘占用"
+    // Listed under Cleanup (see `section`); declared last so it doesn't
+    // shift the Cmd+1...9 shortcuts of the items above.
+    case projectJunk = "项目垃圾"
+    // Cleanup (declared last so the ⌘1-⌘9 shortcuts, which follow
+    // declaration order, keep pointing at the same modules)
+    case cleanHistory = "清理历史"
 
     // Footer (pinned below the list, not rendered in any section)
     case settings = "设置"
@@ -61,6 +68,9 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .duplicates: "duplicates"
         case .shredder: "shredder"
         case .diskHogs: "disk-hogs"
+        case .projectJunk: "project-junk"
+        case .cleanHistory: "clean-history"
+        case .unusedApps: "unused-apps"
         case .settings: "settings"
         }
     }
@@ -90,6 +100,9 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .duplicates: "plus.square.on.square"
         case .shredder: "scissors"
         case .diskHogs: "externaldrive.badge.xmark"
+        case .projectJunk: "shippingbox"
+        case .cleanHistory: "arrow.uturn.backward.circle"
+        case .unusedApps: "app.badge.checkmark"
         case .settings: "gearshape"
         }
     }
@@ -97,10 +110,10 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     public var theme: ModuleTheme {
         switch self {
         case .smartScan: .smartScan
-        case .systemJunk, .mailAttachments, .trashBins, .diskHogs: .cleanup
+        case .systemJunk, .mailAttachments, .trashBins, .projectJunk, .diskHogs, .cleanHistory: .cleanup
         case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
-        case .uninstaller, .extensions, .updater: .applications
+        case .uninstaller, .unusedApps, .extensions, .updater: .applications
         case .spaceLens, .largeOldFiles, .duplicates, .shredder: .files
         case .settings: .settings
         }
@@ -109,10 +122,10 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     public var section: SidebarSection {
         switch self {
         case .smartScan: .main
-        case .systemJunk, .mailAttachments, .trashBins, .diskHogs: .cleanup
+        case .systemJunk, .mailAttachments, .trashBins, .projectJunk, .diskHogs, .cleanHistory: .cleanup
         case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
-        case .uninstaller, .extensions, .updater: .applications
+        case .uninstaller, .unusedApps, .extensions, .updater: .applications
         case .spaceLens, .largeOldFiles, .duplicates, .shredder: .files
         case .settings: .main
         }
