@@ -222,4 +222,30 @@ final class LocalizationTests: AppLanguageTestCase {
             XCTAssertNotEqual(title, "That cleanup cost you nothing.", "\(language) title is untranslated")
         }
     }
+
+    func testDiskHogsStringsAreTranslatedInEveryLanguage() {
+        AppLanguage.current = .en
+        let english = DiskHogsText.all
+        AppLanguage.current = .zhHans
+        let simplified = DiskHogsText.all
+        // Same word in the target language, not a missing translation.
+        let sameAsEnglish: Set<String> = ["Images", "Volumes"]
+        let sameAsSimplified: Set<String> = [
+            "容器", "卷", "大小", "取消", "永久清理", "清理完成", "未能完成", "已停止",
+        ]
+        for language in [AppLanguage.de, .fr, .ru] {
+            AppLanguage.current = language
+            for (index, value) in DiskHogsText.all.enumerated() where !sameAsEnglish.contains(english[index]) || language == .ru {
+                XCTAssertNotEqual(value, english[index], "\(language) is missing: \(english[index])")
+            }
+        }
+        AppLanguage.current = .zhHant
+        for (index, value) in DiskHogsText.all.enumerated() where !sameAsSimplified.contains(simplified[index]) {
+            XCTAssertNotEqual(value, simplified[index], "zh-Hant is missing: \(simplified[index])")
+        }
+        for language in AppLanguage.allCases {
+            AppLanguage.current = language
+            XCTAssertFalse(DiskHogsText.all.contains { $0.contains("\u{2014}") }, "\(language) has an em dash")
+        }
+    }
 }

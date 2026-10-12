@@ -31,7 +31,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case duplicates = "重复文件"
     case shredder = "文件粉碎"
 
-        case diskHogs = "开发者磁盘占用"
+    // Cleanup, declared last so the ⌘1…⌘9 shortcuts above keep their digits
+    case diskHogs = "开发者磁盘占用"
 
     // Footer (pinned below the list, not rendered in any section)
     case settings = "设置"

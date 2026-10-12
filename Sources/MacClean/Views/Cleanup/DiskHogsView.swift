@@ -3,35 +3,42 @@ import MacCleanKit
 
 struct DiskHogsView: View {
     @AppStorage("removeBackgroundColors") private var removeBackgroundColors = false
-    @State private var dockerRows: [DockerDiskRow] = []
+    @State private var dockerState: DiskHogsClient.DockerState = .notInstalled
     @State private var selectedDocker: Set<DockerDiskCategory> = DockerPrune.defaultSelection
     @State private var devices: [SimulatorDevice] = []
     @State private var runtimes: [SimulatorRuntime] = []
     @State private var selectedSim: Set<String> = SimulatorInventory.defaultSelection
     @State private var isLoading = true
     @State private var isWorking = false
-    @State private var statusMessage: String?
+    @State private var statusLines: [String] = []
+    @State private var confirmingPrune = false
+    @State private var confirmingDelete = false
+    @State private var workTask: Task<Void, Never>?
     private let client = DiskHogsClient()
+
+    private var dockerRows: [DockerDiskRow] {
+        if case .rows(let rows) = dockerState { return rows }
+        return []
+    }
+
+    private var selectedDevices: [SimulatorDevice] { devices.filter { selectedSim.contains($0.udid) } }
+    private var selectedRuntimes: [SimulatorRuntime] { runtimes.filter { selectedSim.contains($0.identifier) } }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(L10n.tr("开发者磁盘占用", "Disk Hogs", "Дисковые «пожиратели»"))
+                    Text(DiskHogsText.title)
                         .font(.system(size: 22, weight: .bold))
-                    Text(L10n.tr(
-                        "Docker 镜像/容器/卷/构建缓存，以及不可用的模拟器和旧运行时。仅在已安装时显示，且不会自动勾选。",
-                        "Docker images, containers, volumes, and build cache, plus unavailable simulators and old runtimes. Only appears when installed, and nothing is auto-selected.",
-                        "Образы, контейнеры, тома и кэш сборки Docker, а также недоступные симуляторы и старые рантаймы. Появляется только если инструменты установлены; ничего не выбирается заранее."
-                    ))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary.opacity(0.6))
+                    Text(DiskHogsText.subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.primary.opacity(0.6))
                 }
                 Spacer()
                 Button {
-                    Task { await reload() }
+                    startWork { await reload() }
                 } label: {
-                    Label(L10n.tr("刷新", "Refresh", "Обновить"), systemImage: "arrow.clockwise")
+                    Label(DiskHogsText.refresh, systemImage: "arrow.clockwise")
                 }
                 .disabled(isLoading || isWorking)
             }
@@ -48,92 +55,23 @@ struct DiskHogsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
-                        if !dockerRows.isEmpty {
-                            Section(L10n.tr("Docker", "Docker", "Docker")) {
-                                ForEach(dockerRows) { row in
-                                    Toggle(isOn: Binding(
-                                        get: { selectedDocker.contains(row.category) },
-                                        set: { on in
-                                            if on { selectedDocker.insert(row.category) }
-                                            else { selectedDocker.remove(row.category) }
-                                        }
-                                    )) {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(row.category.label)
-                                                .font(.system(size: 13, weight: .medium))
-                                            Text(L10n.tr(
-                                                "大小 \(row.size) · 可回收 \(row.reclaimable)",
-                                                "Size \(row.size) · Reclaimable \(row.reclaimable)",
-                                                "Размер \(row.size) · Можно освободить \(row.reclaimable)"
-                                            ))
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                                Button(L10n.tr("清理所选 Docker 项", "Prune Selected Docker", "Очистить выбранное в Docker")) {
-                                    Task { await pruneDocker() }
-                                }
-                                .disabled(selectedDocker.isEmpty || isWorking)
-                            }
-                        }
+                        dockerSection
+                        simulatorSection
 
-                        if !devices.isEmpty || !runtimes.isEmpty {
-                            Section(L10n.tr("Xcode 模拟器", "Xcode Simulators", "Симуляторы Xcode")) {
-                                ForEach(devices) { device in
-                                    Toggle(isOn: Binding(
-                                        get: { selectedSim.contains(device.udid) },
-                                        set: { on in
-                                            if on { selectedSim.insert(device.udid) }
-                                            else { selectedSim.remove(device.udid) }
-                                        }
-                                    )) {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(device.name)
-                                            Text(L10n.tr("不可用 · \(device.runtime)", "Unavailable · \(device.runtime)", "Недоступен · \(device.runtime)"))
-                                                .font(.system(size: 11))
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                                ForEach(runtimes) { runtime in
-                                    Toggle(isOn: Binding(
-                                        get: { selectedSim.contains(runtime.identifier) },
-                                        set: { on in
-                                            if on { selectedSim.insert(runtime.identifier) }
-                                            else { selectedSim.remove(runtime.identifier) }
-                                        }
-                                    )) {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(runtime.name)
-                                            Text(runtime.isAvailable
-                                                 ? L10n.tr("旧运行时", "Older runtime", "Старый рантайм")
-                                                 : L10n.tr("不可用运行时", "Unavailable runtime", "Недоступный рантайм"))
-                                                .font(.system(size: 11))
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                                Button(L10n.tr("删除所选模拟器", "Delete Selected Simulators", "Удалить выбранные симуляторы")) {
-                                    Task { await deleteSims() }
-                                }
-                                .disabled(selectedSim.isEmpty || isWorking)
-                            }
-                        }
-
-                        if dockerRows.isEmpty && devices.isEmpty && runtimes.isEmpty {
-                            Text(L10n.tr(
-                                "未检测到 Docker 或 Xcode 模拟器。",
-                                "Neither Docker nor Xcode simulators were detected.",
-                                "Не найдены ни Docker, ни симуляторы Xcode."
-                            ))
-                            .foregroundStyle(.secondary)
-                        }
-
-                        if let statusMessage {
-                            Text(statusMessage)
-                                .font(.system(size: 12))
+                        if dockerState == .notInstalled && devices.isEmpty && runtimes.isEmpty {
+                            Text(DiskHogsText.nothingFound)
                                 .foregroundStyle(.secondary)
+                        }
+
+                        if !statusLines.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                ForEach(Array(statusLines.enumerated()), id: \.offset) { _, line in
+                                    Text(line)
+                                }
+                            }
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
                         }
                     }
                     .listStyle(.inset)
@@ -148,44 +86,183 @@ struct DiskHogsView: View {
             .padding(.bottom, 20)
         }
         .task { await reload() }
-        .respondsToModuleShortcuts(onScan: { Task { await reload() } }, canScan: !isLoading && !isWorking)
+        .onDisappear {
+            workTask?.cancel()
+            workTask = nil
+        }
+        .respondsToModuleShortcuts(onScan: { startWork { await reload() } }, canScan: !isLoading && !isWorking)
+        .confirmationDialog(DiskHogsText.pruneConfirmTitle, isPresented: $confirmingPrune, titleVisibility: .visible) {
+            Button(DiskHogsText.pruneConfirmButton, role: .destructive) {
+                let selection = selectedDocker
+                startWork { await pruneDocker(selection) }
+            }
+            Button(DiskHogsText.cancel, role: .cancel) {}
+        } message: {
+            Text(pruneConfirmMessage)
+        }
+        .confirmationDialog(DiskHogsText.deleteConfirmTitle, isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button(DiskHogsText.deleteConfirmButton, role: .destructive) {
+                let devices = selectedDevices
+                let runtimes = selectedRuntimes
+                startWork { await deleteSims(devices: devices, runtimes: runtimes) }
+            }
+            Button(DiskHogsText.cancel, role: .cancel) {}
+        } message: {
+            Text(deleteConfirmMessage)
+        }
+    }
+
+    // MARK: - Sections
+
+    @ViewBuilder private var dockerSection: some View {
+        switch dockerState {
+        case .notInstalled:
+            EmptyView()
+        case .notResponding:
+            Section {
+                Text(DiskHogsText.dockerNotResponding)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text(verbatim: "Docker")
+            }
+        case .rows(let rows):
+            Section {
+                ForEach(rows) { row in
+                    if row.category.isPrunable {
+                        Toggle(isOn: Binding(
+                            get: { selectedDocker.contains(row.category) },
+                            set: { on in
+                                if on { selectedDocker.insert(row.category) }
+                                else { selectedDocker.remove(row.category) }
+                            }
+                        )) {
+                            dockerRowLabel(row)
+                        }
+                    } else {
+                        // Volumes: information only, never selectable.
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 2)
+                            dockerRowLabel(row)
+                        }
+                    }
+                }
+                Button(DiskHogsText.pruneButton) { confirmingPrune = true }
+                    .disabled(selectedDocker.isEmpty || isWorking)
+            } header: {
+                Text(verbatim: "Docker")
+            }
+        }
+    }
+
+    private func dockerRowLabel(_ row: DockerDiskRow) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(row.category.label + "  ·  " + DiskHogsText.size + " " + row.size)
+                .font(.system(size: 13, weight: .medium))
+            Text(row.category.pruneNote)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private var simulatorSection: some View {
+        if !devices.isEmpty || !runtimes.isEmpty {
+            Section(DiskHogsText.xcodeSection) {
+                ForEach(devices) { device in
+                    simToggle(id: device.udid, title: device.name,
+                              detail: DiskHogsText.unavailableSimulator + "  ·  " + device.runtimeDisplayName)
+                }
+                ForEach(runtimes) { runtime in
+                    simToggle(id: runtime.identifier, title: runtime.name,
+                              detail: runtimeDetail(runtime))
+                }
+                Button(DiskHogsText.deleteButton) { confirmingDelete = true }
+                    .disabled(selectedSim.isEmpty || isWorking)
+            }
+        }
+    }
+
+    private func simToggle(id: String, title: String, detail: String) -> some View {
+        Toggle(isOn: Binding(
+            get: { selectedSim.contains(id) },
+            set: { on in
+                if on { selectedSim.insert(id) }
+                else { selectedSim.remove(id) }
+            }
+        )) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func runtimeDetail(_ runtime: SimulatorRuntime) -> String {
+        guard let bytes = runtime.sizeBytes, bytes > 0 else { return DiskHogsText.olderRuntime }
+        return DiskHogsText.olderRuntime + "  ·  " + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    // MARK: - Confirmation copy
+
+    private var pruneConfirmMessage: String {
+        let lines = DockerPrune.commands(for: selectedDocker).map { "• \($0.category.label): \($0.category.pruneNote)" }
+        return (lines + ["", DiskHogsText.permanentNote]).joined(separator: "\n")
+    }
+
+    private var deleteConfirmMessage: String {
+        var lines = selectedDevices.map { "• \($0.name) (\(DiskHogsText.unavailableSimulator))" }
+        lines += selectedRuntimes.map { "• \($0.name) (\(runtimeDetail($0)))" }
+        if !selectedRuntimes.isEmpty { lines += ["", DiskHogsText.runtimeShutdownNote] }
+        return (lines + ["", DiskHogsText.permanentNote]).joined(separator: "\n")
+    }
+
+    // MARK: - Work
+
+    /// One piece of work at a time, cancelled if the user leaves the screen.
+    private func startWork(_ work: @escaping @MainActor () async -> Void) {
+        workTask?.cancel()
+        workTask = Task { await work() }
     }
 
     private func reload() async {
         isLoading = true
-        async let d = client.dockerRows()
-        async let dev = client.unavailableDevices()
-        async let run = client.oldRuntimes()
-        dockerRows = await d
-        devices = await dev
-        runtimes = await run
+        async let docker = client.dockerState()
+        async let sims = client.simulators()
+        let (state, simulators) = await (docker, sims)
+        if Task.isCancelled { return }
+        dockerState = state
+        devices = simulators.devices
+        runtimes = simulators.runtimes
         selectedDocker = DockerPrune.defaultSelection
         selectedSim = SimulatorInventory.defaultSelection
         isLoading = false
     }
 
-    private func pruneDocker() async {
+    private func pruneDocker(_ selection: Set<DockerDiskCategory>) async {
         isWorking = true
-        statusMessage = await client.pruneDocker(selection: selectedDocker)
+        defer { isWorking = false }
+        let results = await client.pruneDocker(selection: selection)
+        statusLines = results.map { DiskHogsText.statusLine(name: $0.name, outcome: $0.outcome, success: DiskHogsText.pruned) }
         selectedDocker = []
-        dockerRows = await client.dockerRows()
-        isWorking = false
+        if Task.isCancelled { return }
+        dockerState = await client.dockerState()
     }
 
-    private func deleteSims() async {
+    private func deleteSims(devices: [SimulatorDevice], runtimes: [SimulatorRuntime]) async {
         isWorking = true
-        let deviceIDs = Set(devices.map(\.udid))
-        for id in selectedSim {
-            if deviceIDs.contains(id) {
-                await client.deleteSimulator(udid: id)
-            } else {
-                await client.deleteRuntime(identifier: id)
-            }
-        }
+        defer { isWorking = false }
+        let results = await client.deleteSimulators(devices: devices, runtimes: runtimes)
+        statusLines = results.map { DiskHogsText.statusLine(name: $0.name, outcome: $0.outcome, success: DiskHogsText.deleted) }
         selectedSim = []
-        devices = await client.unavailableDevices()
-        runtimes = await client.oldRuntimes()
-        statusMessage = L10n.tr("已删除所选模拟器项", "Deleted selected simulator items", "Выбранные симуляторы удалены")
-        isWorking = false
+        if Task.isCancelled { return }
+        let refreshed = await client.simulators()
+        self.devices = refreshed.devices
+        self.runtimes = refreshed.runtimes
     }
 }
