@@ -266,6 +266,38 @@ final class LocalizationTests: AppLanguageTestCase {
         }
     }
 
+    /// Every string on the Project Junk screen, as `ProjectJunkView` and
+    /// `ScanCategory.projectJunk` pass them to `L10n.tr`.
+    func testProjectJunkIsTranslatedInEveryLanguage() {
+        let strings: [(zh: String, en: String, ru: String)] = [
+            ("项目垃圾", "Project Junk", "Мусор проектов"),
+            ("代码项目中的依赖和构建文件夹。", "Dependency and build folders inside your code projects.", "Папки зависимостей и сборки внутри ваших проектов."),
+            ("项目中已安装的依赖和构建产物。运行项目的安装或构建命令即可找回；之后第一次构建会更慢。", "Installed dependencies and build output inside your projects. Running the project's install or build command brings them back; the first build afterwards takes longer.", "Установленные зависимости и результаты сборки внутри ваших проектов. Команда установки или сборки проекта вернёт их; первая сборка после этого займёт больше времени."),
+            ("选择项目文件夹（例如 ~/Code），查找 node_modules、venv、target、build 等可重建目录。", "Choose a projects folder (e.g. ~/Code) to find regenerable folders like node_modules, venvs, target, and build.", "Выберите папку с проектами (например ~/Code), чтобы найти восстанавливаемые каталоги вроде node_modules, venv, target и build."),
+            ("不会自动勾选。", "Nothing is auto-selected.", "Ничего не выбирается заранее."),
+            ("未找到项目垃圾", "No project junk found", "Мусор проектов не найден"),
+            ("请选择你的项目文件夹，而不是系统文件夹或资源库。", "Choose your projects folder, not a system folder or Library.", "Выберите папку с проектами, а не системную папку или Библиотеку."),
+            ("正在查找项目…", "Finding projects…", "Поиск проектов…"),
+            ("正在计算文件夹大小…", "Measuring folders…", "Подсчёт размера папок…"),
+        ]
+        for language in [AppLanguage.de, .fr, .zhHant, .ru] {
+            AppLanguage.current = language
+            for s in strings {
+                let text = L10n.tr(s.zh, s.en, s.ru)
+                XCTAssertNotEqual(text, s.en, "\"\(s.en)\" is untranslated in \(language.rawValue)")
+                XCTAssertFalse(text.contains("\u{2014}"), "\"\(s.en)\" has an em dash in \(language.rawValue)")
+                if language == .zhHant {
+                    // zh-Hant falls back to the Simplified source silently.
+                    XCTAssertNotEqual(text, s.zh, "\"\(s.en)\" is untranslated in zh-Hant")
+                }
+            }
+        }
+        AppLanguage.current = .en
+        for s in strings {
+            XCTAssertFalse(L10n.tr(s.zh, s.en, s.ru).contains("\u{2014}"), s.en)
+        }
+    }
+
     func testUnusedAppsIsTranslatedInEveryLanguage() {
         // Every user-facing Unused Apps string: (zhHans, English).
         let strings: [(String, String)] = [
