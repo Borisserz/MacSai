@@ -193,6 +193,8 @@ struct ContentView: View {
             MaintenanceView()
         case .uninstaller:
             UninstallerView()
+        case .unusedApps:
+            UnusedAppsView()
         case .extensions:
             ExtensionsView()
         case .updater:
