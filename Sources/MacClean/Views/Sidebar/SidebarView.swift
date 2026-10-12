@@ -31,7 +31,9 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case duplicates = "重复文件"
     case shredder = "文件粉碎"
 
-        case cleanHistory = "清理历史"
+    // Cleanup (declared last so the ⌘1-⌘9 shortcuts, which follow
+    // declaration order, keep pointing at the same modules)
+    case cleanHistory = "清理历史"
 
     // Footer (pinned below the list, not rendered in any section)
     case settings = "设置"

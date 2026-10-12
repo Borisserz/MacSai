@@ -24,12 +24,19 @@ public struct CleanHistorySession: Equatable, Codable, Sendable, Identifiable {
     public let id: UUID
     public let date: Date
     public let items: [CleanHistoryItem]
+    /// Items the clean trashed beyond `CleanHistoryStore.maxItemsPerSession`.
+    /// They are still in the Trash but Restore can't put them back, and the
+    /// UI says so instead of offering a silently partial restore.
+    public let omittedCount: Int?
 
-    public init(id: UUID, date: Date, items: [CleanHistoryItem]) {
+    public init(id: UUID, date: Date, items: [CleanHistoryItem], omittedCount: Int? = nil) {
         self.id = id
         self.date = date
         self.items = items
+        self.omittedCount = omittedCount
     }
+
+    public var isPartial: Bool { (omittedCount ?? 0) > 0 }
 
     public var totalBytes: UInt64 {
         items.reduce(0) { $0 &+ $1.bytes }
@@ -104,12 +111,22 @@ public enum CleanHistoryRestore {
 
 public enum CleanHistoryStore {
     public static let maxSessions = 20
+    public static let maxItemsPerSession = 5_000
+    public static let maxAge: TimeInterval = 30 * 24 * 60 * 60
 
     public static func adding(
         _ session: CleanHistorySession,
-        to existing: [CleanHistorySession]
+        to existing: [CleanHistorySession],
+        now: Date = Date()
     ) -> [CleanHistorySession] {
-        ([session] + existing)
+        pruned([session] + existing, now: now)
+    }
+
+    /// Newest first, nothing older than `maxAge`, at most `maxSessions`.
+    public static func pruned(_ sessions: [CleanHistorySession], now: Date = Date()) -> [CleanHistorySession] {
+        let cutoff = now.addingTimeInterval(-maxAge)
+        return sessions
+            .filter { $0.date >= cutoff }
             .sorted { $0.date > $1.date }
             .prefix(maxSessions)
             .map { $0 }
@@ -123,7 +140,9 @@ public enum CleanHistoryStore {
     ) -> [CleanHistorySession] {
         sessions.compactMap { session in
             let left = session.items.filter { !itemIDs.contains($0.id) }
-            return left.isEmpty ? nil : CleanHistorySession(id: session.id, date: session.date, items: left)
+            return left.isEmpty
+                ? nil
+                : CleanHistorySession(id: session.id, date: session.date, items: left, omittedCount: session.omittedCount)
         }
     }
 

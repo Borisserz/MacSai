@@ -123,6 +123,51 @@ final class CleanHistoryRecorderTests: XCTestCase {
         XCTAssertEqual(CleanHistoryRecorder.load().count, 20)
     }
 
+    func testHistoryFileIsOwnerOnlyAndLeavesNoTempFiles() throws {
+        CleanHistoryRecorder.record(trashedItems: [
+            .init(originalURL: URL(filePath: "/tmp/o"), trashURL: URL(filePath: "/tmp/t"), bytes: 1),
+        ])
+        CleanHistoryRecorder.record(trashedItems: [
+            .init(originalURL: URL(filePath: "/tmp/o2"), trashURL: URL(filePath: "/tmp/t2"), bytes: 1),
+        ])
+        let attrs = try FileManager.default.attributesOfItem(atPath: CleanHistoryRecorder.fileURL.path(percentEncoded: false))
+        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path(percentEncoded: false))
+            .filter { $0.hasSuffix(".tmp") }
+        XCTAssertEqual(leftovers, [])
+        XCTAssertEqual(CleanHistoryRecorder.load().count, 2)
+    }
+
+    func testOversizedCleanIsFlaggedPartialNotSilentlyTruncated() {
+        let count = CleanHistoryStore.maxItemsPerSession + 7
+        CleanHistoryRecorder.record(trashedItems: (0..<count).map {
+            .init(originalURL: URL(filePath: "/tmp/o\($0)"), trashURL: URL(filePath: "/tmp/t\($0)"), bytes: 1)
+        })
+        let session = CleanHistoryRecorder.load().first
+        XCTAssertEqual(session?.items.count, CleanHistoryStore.maxItemsPerSession)
+        XCTAssertEqual(session?.omittedCount, 7)
+        XCTAssertEqual(session?.isPartial, true)
+    }
+
+    func testSessionsOlderThan30DaysAreNotOffered() {
+        CleanHistoryRecorder.record(
+            trashedItems: [.init(originalURL: URL(filePath: "/tmp/o"), trashURL: URL(filePath: "/tmp/t"), bytes: 1)],
+            now: Date().addingTimeInterval(-31 * 86_400)
+        )
+        XCTAssertTrue(CleanHistoryRecorder.load().isEmpty)
+    }
+
+    func testClearForgetsHistoryButLeavesTrashAlone() throws {
+        let original = dir.appending(path: "Caches/keep.me")
+        try write("still here", to: original)
+        CleanHistoryRecorder.record(trashedItems: [try fakeTrashItem(original)])
+
+        CleanHistoryRecorder.clear()
+
+        XCTAssertTrue(CleanHistoryRecorder.load().isEmpty)
+        XCTAssertEqual(contents(fakeTrash.appending(path: "keep.me")), "still here")
+    }
+
     /// End to end through the real engine and the real Trash, like
     /// CleaningEngineTests: trash a temp file, then Restore it.
     func testEngineTrashThenRestoreRoundTrip() async throws {

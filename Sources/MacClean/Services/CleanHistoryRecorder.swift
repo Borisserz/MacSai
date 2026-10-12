@@ -20,11 +20,11 @@ public enum CleanHistoryRecorder {
         lock.withLock { unlockedLoad() }
     }
 
-    private static func unlockedLoad() -> [CleanHistorySession] {
+    private static func unlockedLoad(now: Date = Date()) -> [CleanHistorySession] {
         guard let data = try? Data(contentsOf: fileURL),
               let sessions = try? CleanHistoryStore.decode(data)
         else { return [] }
-        return sessions
+        return CleanHistoryStore.pruned(sessions, now: now)
     }
 
     public static func record(
@@ -32,10 +32,12 @@ public enum CleanHistoryRecorder {
         now: Date = Date()
     ) {
         guard !trashedItems.isEmpty else { return }
+        let kept = trashedItems.prefix(CleanHistoryStore.maxItemsPerSession)
+        let omitted = trashedItems.count - kept.count
         let session = CleanHistorySession(
             id: UUID(),
             date: now,
-            items: trashedItems.map {
+            items: kept.map {
                 let trashPath = $0.trashURL.path(percentEncoded: false)
                 return CleanHistoryItem(
                     id: UUID(),
@@ -44,10 +46,11 @@ public enum CleanHistoryRecorder {
                     bytes: $0.bytes,
                     trashFileID: fileID(atPath: trashPath)
                 )
-            }
+            },
+            omittedCount: omitted > 0 ? omitted : nil
         )
         lock.withLock {
-            unlockedSave(CleanHistoryStore.adding(session, to: unlockedLoad()))
+            unlockedSave(CleanHistoryStore.adding(session, to: unlockedLoad(now: now), now: now))
         }
     }
 
@@ -55,12 +58,28 @@ public enum CleanHistoryRecorder {
         lock.withLock { unlockedSave(sessions) }
     }
 
+    /// Forgets every session. Files already in the Trash are not touched.
+    public static func clear() {
+        lock.withLock { try? FileManager.default.removeItem(at: fileURL) }
+    }
+
+    /// Writes owner-only (0600, the file lists cleaned paths) and atomically:
+    /// the data goes to a temp file created with those permissions, which is
+    /// then renamed over the old history.
     private static func unlockedSave(_ sessions: [CleanHistorySession]) {
         let url = fileURL
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         guard let data = try? CleanHistoryStore.encode(sessions) else { return }
-        try? data.write(to: url, options: .atomic)
+        let tmp = dir.appending(path: ".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+            .path(percentEncoded: false)
+        let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        guard fd >= 0 else { return }
+        let written = data.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        close(fd)
+        if written != data.count || rename(tmp, url.path(percentEncoded: false)) != 0 {
+            unlink(tmp)
+        }
     }
 
     /// Puts a session's items back where they were. Each item is validated

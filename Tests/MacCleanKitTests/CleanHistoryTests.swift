@@ -80,10 +80,33 @@ final class CleanHistoryTests: XCTestCase {
                 )
             ]
         )
-        let stored = CleanHistoryStore.adding(newer, to: [older])
+        let stored = CleanHistoryStore.adding(newer, to: [older], now: Date(timeIntervalSince1970: 30))
         let decoded = try CleanHistoryStore.decode(CleanHistoryStore.encode(stored))
         XCTAssertEqual(decoded.map(\.id), [newer.id, older.id])
         XCTAssertEqual(decoded[0].items[0].trashFileID, 42)
+    }
+
+    func testPruningDropsSessionsOlderThan30DaysAndKeepsAtMost20() {
+        let now = Date(timeIntervalSince1970: 100 * 86_400)
+        let fresh = (0..<25).map {
+            CleanHistorySession(id: UUID(), date: now.addingTimeInterval(TimeInterval(-$0 * 3_600)), items: [])
+        }
+        let stale = CleanHistorySession(id: UUID(), date: now.addingTimeInterval(-31 * 86_400), items: [])
+        let kept = CleanHistoryStore.pruned(fresh + [stale], now: now)
+        XCTAssertEqual(kept.count, CleanHistoryStore.maxSessions)
+        XCTAssertEqual(kept.map(\.id), Array(fresh.prefix(20)).map(\.id), "newest first")
+        XCTAssertFalse(kept.contains(stale))
+        XCTAssertTrue(CleanHistoryStore.pruned([stale], now: now).isEmpty)
+    }
+
+    func testPartialFlagSurvivesRoundTripAndRemoval() throws {
+        let a = CleanHistoryItem(id: UUID(), originalPath: "/a", trashPath: "/t/a", bytes: 1)
+        let b = CleanHistoryItem(id: UUID(), originalPath: "/b", trashPath: "/t/b", bytes: 1)
+        let session = CleanHistorySession(id: UUID(), date: Date(), items: [a, b], omittedCount: 9)
+        let decoded = try CleanHistoryStore.decode(CleanHistoryStore.encode([session]))
+        XCTAssertTrue(decoded[0].isPartial)
+        XCTAssertEqual(CleanHistoryStore.removing(itemIDs: [a.id], from: decoded)[0].omittedCount, 9)
+        XCTAssertFalse(CleanHistorySession(id: UUID(), date: Date(), items: [a]).isPartial)
     }
 
     func testCorruptHistoryThrowsInsteadOfCrashing() {
