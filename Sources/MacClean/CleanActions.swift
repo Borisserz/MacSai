@@ -75,6 +75,7 @@ public enum CleanActions {
         // onProgress to both is safe and never double-drives the bar.
         let trashResult = await engine.clean(items: dedupedTrashItems, mode: .trash,
                                              onProgress: onProgress)
+        CleanHistoryRecorder.record(trashedItems: trashResult.trashedItems)
         if Task.isCancelled {
             return trashResult
         }
@@ -87,7 +88,8 @@ public enum CleanActions {
                 freedBytes: trashResult.freedBytes + permanentResult.freedBytes,
                 removedURLs: trashResult.removedURLs.union(permanentResult.removedURLs),
                 errors: trashResult.errors + permanentResult.errors,
-                skippedCount: trashResult.skippedCount + permanentResult.skippedCount
+                skippedCount: trashResult.skippedCount + permanentResult.skippedCount,
+                trashedItems: trashResult.trashedItems
             )
         }
 
@@ -99,7 +101,8 @@ public enum CleanActions {
                 .union(permanentResult.removedURLs)
                 .union(thinResult.removedURLs),
             errors: trashResult.errors + permanentResult.errors + thinResult.errors,
-            skippedCount: trashResult.skippedCount + permanentResult.skippedCount + thinResult.skippedCount
+            skippedCount: trashResult.skippedCount + permanentResult.skippedCount + thinResult.skippedCount,
+            trashedItems: trashResult.trashedItems
         )
     }
 
@@ -165,8 +168,10 @@ public enum CleanActions {
     ) async -> CleaningEngine.CleanResult {
         let filtered = items.filter { selectedItems.contains($0.url) }
         let deduped = Self.prunedToParents(filtered)
-        return await engine.clean(items: deduped, mode: .trash,
+        let result = await engine.clean(items: deduped, mode: .trash,
                                   onProgress: onProgress)
+        CleanHistoryRecorder.record(trashedItems: result.trashedItems)
+        return result
     }
 
     /// Returns `items` with any FileItem whose URL is a strict descendant

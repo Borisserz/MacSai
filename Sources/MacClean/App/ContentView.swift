@@ -181,6 +181,8 @@ struct ContentView: View {
             TrashBinsView()
         case .projectJunk:
             ProjectJunkView()
+        case .cleanHistory:
+            CleanHistoryView()
         case .malwareRemoval:
             MalwareView()
         case .privacy:
@@ -195,6 +197,8 @@ struct ContentView: View {
             MaintenanceView()
         case .uninstaller:
             UninstallerView()
+        case .unusedApps:
+            UnusedAppsView()
         case .extensions:
             ExtensionsView()
         case .updater:
