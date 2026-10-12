@@ -76,7 +76,7 @@ public struct UnusedAppRecord: Equatable, Hashable, Sendable, Identifiable {
 public enum UnusedApps {
     /// Returns non-Apple apps whose last-used date is on or before the horizon
     /// cutoff, sorted by total footprint (app + support) descending, then name.
-    /// Apps without a last-used date are omitted — macOS cannot prove they are idle.
+    /// Apps without a last-used date are omitted: macOS cannot prove they are idle.
     public static func unused(
         from apps: [UnusedAppRecord],
         horizon: UnusedAppHorizon,

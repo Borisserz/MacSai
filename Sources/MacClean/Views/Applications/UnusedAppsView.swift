@@ -135,11 +135,9 @@ struct UnusedAppsView: View {
             last = L10n.tr("未知", "Unknown", "Неизвестно")
         }
         let support = FileSizeFormatter.format(app.supportBytes)
-        return L10n.tr(
-            "上次打开 \(last) · 支持文件 \(support)",
-            "Last opened \(last) · Support files \(support)",
-            "Открывалось \(last) · Файлы поддержки \(support)"
-        )
+        let lastLabel = L10n.tr("上次打开", "Last opened", "Открывалось")
+        let supportLabel = L10n.tr("支持文件", "Support files", "Файлы поддержки")
+        return "\(lastLabel) \(last) · \(supportLabel) \(support)"
     }
 
     private func reload() async {

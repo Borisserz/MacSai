@@ -363,13 +363,15 @@ struct UninstallerView: View {
     }
 
     private func selectPendingApp(path: String) {
+        // Consume the request either way, so a stale path (app removed since
+        // Unused Apps listed it) can't select something on a later visit.
+        appState.pendingUninstallerAppPath = nil
         guard let match = apps.first(where: {
             $0.path.path(percentEncoded: false) == path
         }) else { return }
         selectedApp = match
         loadAssociatedFiles(for: match)
         filter = .all
-        appState.pendingUninstallerAppPath = nil
     }
 
     private func loadAssociatedFiles(for app: AppInfo) {

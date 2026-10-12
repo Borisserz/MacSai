@@ -22,6 +22,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
 
     // Applications
     case uninstaller = "卸载器"
+    case unusedApps = "未使用的应用"
     case extensions = "扩展"
     case updater = "应用更新"
 
@@ -30,8 +31,6 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case largeOldFiles = "大文件与旧文件"
     case duplicates = "重复文件"
     case shredder = "文件粉碎"
-
-        case unusedApps = "未使用的应用"
 
     // Footer (pinned below the list, not rendered in any section)
     case settings = "设置"
