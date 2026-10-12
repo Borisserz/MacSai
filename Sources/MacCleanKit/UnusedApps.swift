@@ -44,6 +44,8 @@ public struct UnusedAppRecord: Equatable, Hashable, Sendable, Identifiable {
     public let lastUsed: Date?
     public let isApple: Bool
     public let runsInBackground: Bool
+    /// Running right now (including menu-bar apps): never "unused".
+    public let isRunning: Bool
 
     public var totalBytes: UInt64 { appBytes &+ supportBytes }
 
@@ -55,7 +57,8 @@ public struct UnusedAppRecord: Equatable, Hashable, Sendable, Identifiable {
         supportBytes: UInt64,
         lastUsed: Date?,
         isApple: Bool,
-        runsInBackground: Bool
+        runsInBackground: Bool,
+        isRunning: Bool = false
     ) {
         self.name = name
         self.bundleIdentifier = bundleIdentifier
@@ -65,6 +68,7 @@ public struct UnusedAppRecord: Equatable, Hashable, Sendable, Identifiable {
         self.lastUsed = lastUsed
         self.isApple = isApple
         self.runsInBackground = runsInBackground
+        self.isRunning = isRunning
     }
 }
 
@@ -81,7 +85,7 @@ public enum UnusedApps {
     ) -> [UnusedAppRecord] {
         let cutoff = horizon.cutoff(from: now, calendar: calendar)
         return apps
-            .filter { !$0.isApple }
+            .filter { !$0.isApple && !$0.isRunning }
             .filter { app in
                 guard let lastUsed = app.lastUsed else { return false }
                 return lastUsed <= cutoff
@@ -92,6 +96,18 @@ public enum UnusedApps {
                 }
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
+    }
+}
+
+extension UnusedApps {
+    /// True when Spotlight has no last-used date for most third-party apps
+    /// (index disabled or broken). The list would then be mostly empty or
+    /// misleading, so the UI should say so instead of implying "all in use".
+    public static func usageDataUnavailable(in apps: [UnusedAppRecord]) -> Bool {
+        let thirdParty = apps.filter { !$0.isApple }
+        guard !thirdParty.isEmpty else { return false }
+        let missing = thirdParty.filter { $0.lastUsed == nil }.count
+        return Double(missing) / Double(thirdParty.count) >= 0.8
     }
 }
 

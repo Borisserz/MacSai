@@ -6,9 +6,11 @@ struct UnusedAppsView: View {
     @Environment(AppState.self) private var appState
     @AppStorage("removeBackgroundColors") private var removeBackgroundColors = false
     @State private var horizon: UnusedAppHorizon = .sixMonths
-    @State private var apps: [UnusedAppRecord] = []
+    @State private var records: [UnusedAppRecord] = []
     @State private var isLoading = true
-    private let client = UnusedAppsClient()
+    @State private var loadGeneration = 0
+
+    private var apps: [UnusedAppRecord] { UnusedApps.unused(from: records, horizon: horizon) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,9 +34,6 @@ struct UnusedAppsView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 260)
-                .onChange(of: horizon) { _, _ in
-                    Task { await reload() }
-                }
                 Button {
                     Task { await reload() }
                 } label: {
@@ -53,6 +52,21 @@ struct UnusedAppsView: View {
                         Text(L10n.tr("正在查找未使用的应用…", "Looking for unused apps…", "Поиск неиспользуемых приложений…"))
                             .font(.system(size: 13))
                             .foregroundStyle(.primary.opacity(0.6))
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if UnusedApps.usageDataUnavailable(in: records) {
+                    VStack(spacing: 8) {
+                        Spacer()
+                        Text(L10n.tr("Spotlight 没有应用的使用记录", "Spotlight has no usage history for your apps", "В Spotlight нет истории использования приложений"))
+                            .font(.system(size: 13, weight: .medium))
+                        Text(L10n.tr(
+                            "无法判断哪些应用未被使用。请检查 Spotlight 索引是否已开启。",
+                            "Mac Sai can't tell which apps are unused. Check that Spotlight indexing is turned on.",
+                            "Невозможно определить неиспользуемые приложения. Проверьте, что индексация Spotlight включена."
+                        ))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.primary.opacity(0.5))
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -129,12 +143,18 @@ struct UnusedAppsView: View {
     }
 
     private func reload() async {
+        loadGeneration &+= 1
+        let generation = loadGeneration
         isLoading = true
-        let horizon = self.horizon
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap {
+            $0.bundleURL?.path(percentEncoded: false)
+        })
         let listed = await Task.detached {
-            await UnusedAppsClient().list(horizon: horizon)
+            await UnusedAppsClient().records(runningAppPaths: running)
         }.value
-        apps = listed
+        // A newer refresh started while this one ran: drop the stale result.
+        guard generation == loadGeneration else { return }
+        records = listed
         isLoading = false
     }
 }

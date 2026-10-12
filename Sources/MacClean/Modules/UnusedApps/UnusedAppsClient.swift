@@ -10,25 +10,35 @@ public struct UnusedAppsClient: Sendable {
 
     public init() {}
 
-    public func list(horizon: UnusedAppHorizon) async -> [UnusedAppRecord] {
+    /// Every installed app with its Spotlight last-used date. Support files
+    /// are sized only for apps idle past the shortest horizon, so switching
+    /// horizons can filter this in memory instead of rescanning.
+    /// `runningAppPaths` comes from NSWorkspace on the main actor.
+    public func records(runningAppPaths: Set<String>) async -> [UnusedAppRecord] {
         let apps = await discovery.discoverApps()
-        let records = apps.map { app -> UnusedAppRecord in
-            let support = pathFinder.findAssociatedFiles(for: app)
-            let supportBytes = support.reduce(UInt64(0)) { $0 &+ $1.size }
-            let lastUsed = Self.spotlightLastUsed(at: app.path) ?? app.lastOpened
+        let shortestCutoff = UnusedAppHorizon.threeMonths.cutoff(from: Date())
+        return apps.map { app -> UnusedAppRecord in
+            // No atime fallback: a bundle's access date is not updated on
+            // launch, so it made apps in daily use look idle for months.
+            let lastUsed = Self.spotlightLastUsed(at: app.path)
+            let path = app.path.path(percentEncoded: false)
+            let isCandidate = !app.isAppleApp && (lastUsed.map { $0 <= shortestCutoff } ?? false)
+            let supportBytes = isCandidate
+                ? pathFinder.findAssociatedFiles(for: app).reduce(UInt64(0)) { $0 &+ $1.size }
+                : 0
             let runsInBackground = Self.readsBackgroundRole(at: app.path)
             return UnusedAppRecord(
                 name: app.name,
                 bundleIdentifier: app.bundleIdentifier,
-                path: app.path.path(percentEncoded: false),
+                path: path,
                 appBytes: app.size,
                 supportBytes: supportBytes,
                 lastUsed: lastUsed,
                 isApple: app.isAppleApp,
-                runsInBackground: runsInBackground
+                runsInBackground: runsInBackground,
+                isRunning: runningAppPaths.contains(path)
             )
         }
-        return UnusedApps.unused(from: records, horizon: horizon)
     }
 
     static func spotlightLastUsed(at url: URL) -> Date? {

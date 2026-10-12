@@ -75,6 +75,21 @@ final class UnusedAppsTests: XCTestCase {
         XCTAssertFalse(AppRuntimeRole.runsInBackground(infoPlist: [:]))
     }
 
+    func testRunningAppsAreNeverListedAsUnused() {
+        let running = record(name: "Daemon", monthsAgo: 10, isRunning: true)
+        let idle = record(name: "Idle", monthsAgo: 10)
+        let listed = UnusedApps.unused(from: [running, idle], horizon: .threeMonths, now: now, calendar: calendar)
+        XCTAssertEqual(listed.map(\.name), ["Idle"])
+    }
+
+    func testUsageDataIsUnavailableWhenMostAppsHaveNoLastUsedDate() {
+        let blind = (0..<9).map { record(name: "App\($0)", lastUsed: nil) } + [record(name: "One", monthsAgo: 1)]
+        XCTAssertTrue(UnusedApps.usageDataUnavailable(in: blind))
+        let healthy = (0..<9).map { record(name: "App\($0)", monthsAgo: 1) } + [record(name: "New", lastUsed: nil)]
+        XCTAssertFalse(UnusedApps.usageDataUnavailable(in: healthy))
+        XCTAssertFalse(UnusedApps.usageDataUnavailable(in: []))
+    }
+
     private func record(
         name: String,
         monthsAgo: Int? = nil,
@@ -82,7 +97,8 @@ final class UnusedAppsTests: XCTestCase {
         appBytes: UInt64 = 100,
         supportBytes: UInt64 = 0,
         isApple: Bool = false,
-        runsInBackground: Bool = false
+        runsInBackground: Bool = false,
+        isRunning: Bool = false
     ) -> UnusedAppRecord {
         let used: Date?
         if let monthsAgo {
@@ -98,7 +114,8 @@ final class UnusedAppsTests: XCTestCase {
             supportBytes: supportBytes,
             lastUsed: used,
             isApple: isApple,
-            runsInBackground: runsInBackground
+            runsInBackground: runsInBackground,
+            isRunning: isRunning
         )
     }
 }
