@@ -179,6 +179,8 @@ struct ContentView: View {
             MailAttachmentsView()
         case .trashBins:
             TrashBinsView()
+        case .cleanHistory:
+            CleanHistoryView()
         case .malwareRemoval:
             MalwareView()
         case .privacy:

@@ -9,12 +9,42 @@ public actor CleaningEngine {
         case dryRun
     }
 
+    public struct TrashedItem: Sendable, Equatable {
+        public let originalURL: URL
+        public let trashURL: URL
+        public let bytes: UInt64
+
+        public init(originalURL: URL, trashURL: URL, bytes: UInt64) {
+            self.originalURL = originalURL
+            self.trashURL = trashURL
+            self.bytes = bytes
+        }
+    }
+
     public struct CleanResult: Sendable {
         public let removedCount: Int
         public let freedBytes: UInt64
         public let removedURLs: Set<URL>
         public let errors: [CleanError]
         public let skippedCount: Int
+        /// Items actually moved to the Trash (empty for dry-run / permanent).
+        public let trashedItems: [TrashedItem]
+
+        public init(
+            removedCount: Int,
+            freedBytes: UInt64,
+            removedURLs: Set<URL>,
+            errors: [CleanError],
+            skippedCount: Int,
+            trashedItems: [TrashedItem] = []
+        ) {
+            self.removedCount = removedCount
+            self.freedBytes = freedBytes
+            self.removedURLs = removedURLs
+            self.errors = errors
+            self.skippedCount = skippedCount
+            self.trashedItems = trashedItems
+        }
     }
 
     public struct CleanError: Sendable {
@@ -83,6 +113,7 @@ public actor CleaningEngine {
         var removedURLs = Set<URL>()
         var errors: [CleanError] = []
         var skippedCount = 0
+        var trashedItems: [TrashedItem] = []
 
         // Internal chunking: SafetyGuard.validateDeletion runs per chunk
         // (capped at MCConstants.maxFilesPerOperation), so even arbitrary-
@@ -105,7 +136,8 @@ public actor CleaningEngine {
                 freedBytes: &freedBytes,
                 removedURLs: &removedURLs,
                 errors: &errors,
-                skippedCount: &skippedCount
+                skippedCount: &skippedCount,
+                trashedItems: &trashedItems
             )
             processedSoFar += chunk.count
 
@@ -130,7 +162,8 @@ public actor CleaningEngine {
             freedBytes: freedBytes,
             removedURLs: removedURLs,
             errors: errors,
-            skippedCount: skippedCount
+            skippedCount: skippedCount,
+            trashedItems: trashedItems
         )
     }
 
@@ -146,7 +179,8 @@ public actor CleaningEngine {
         freedBytes: inout UInt64,
         removedURLs: inout Set<URL>,
         errors: inout [CleanError],
-        skippedCount: inout Int
+        skippedCount: inout Int,
+        trashedItems: inout [TrashedItem]
     ) {
         let urls = chunk.map(\.url)
         do {
@@ -203,10 +237,16 @@ public actor CleaningEngine {
 
             case .trash:
                 do {
-                    try FileManager.default.trashItem(at: item.url, resultingItemURL: nil)
+                    var resulting: NSURL?
+                    try FileManager.default.trashItem(at: item.url, resultingItemURL: &resulting)
                     removedCount += 1
                     freedBytes += realSize
                     removedURLs.insert(item.url)
+                    if let trashURL = resulting as URL? {
+                        trashedItems.append(
+                            TrashedItem(originalURL: item.url, trashURL: trashURL, bytes: realSize)
+                        )
+                    }
                     logOperation(path: item.url, size: realSize, dryRun: false)
                 } catch let nsError as NSError where Self.isBenignMissingFile(nsError) {
                     // Cache churn: scanner saw the file, but a daemon
