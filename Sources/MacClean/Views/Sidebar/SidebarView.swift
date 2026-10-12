@@ -32,6 +32,8 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     case duplicates = "重复文件"
     case shredder = "文件粉碎"
 
+    // Cleanup, declared last so the ⌘1…⌘9 shortcuts above keep their digits
+    case diskHogs = "开发者磁盘占用"
     // Listed under Cleanup (see `section`); declared last so it doesn't
     // shift the Cmd+1...9 shortcuts of the items above.
     case projectJunk = "项目垃圾"
@@ -65,6 +67,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .largeOldFiles: "large-old-files"
         case .duplicates: "duplicates"
         case .shredder: "shredder"
+        case .diskHogs: "disk-hogs"
         case .projectJunk: "project-junk"
         case .cleanHistory: "clean-history"
         case .unusedApps: "unused-apps"
@@ -96,6 +99,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
         case .largeOldFiles: "doc.richtext"
         case .duplicates: "plus.square.on.square"
         case .shredder: "scissors"
+        case .diskHogs: "externaldrive.badge.xmark"
         case .projectJunk: "shippingbox"
         case .cleanHistory: "arrow.uturn.backward.circle"
         case .unusedApps: "app.badge.checkmark"
@@ -106,7 +110,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     public var theme: ModuleTheme {
         switch self {
         case .smartScan: .smartScan
-        case .systemJunk, .mailAttachments, .trashBins, .projectJunk, .cleanHistory: .cleanup
+        case .systemJunk, .mailAttachments, .trashBins, .projectJunk, .diskHogs, .cleanHistory: .cleanup
         case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
         case .uninstaller, .unusedApps, .extensions, .updater: .applications
@@ -118,7 +122,7 @@ public enum SidebarItem: String, CaseIterable, Identifiable {
     public var section: SidebarSection {
         switch self {
         case .smartScan: .main
-        case .systemJunk, .mailAttachments, .trashBins, .projectJunk, .cleanHistory: .cleanup
+        case .systemJunk, .mailAttachments, .trashBins, .projectJunk, .diskHogs, .cleanHistory: .cleanup
         case .malwareRemoval, .privacy, .wifiNetworks, .appPermissions: .protection
         case .optimization, .maintenance: .performance
         case .uninstaller, .unusedApps, .extensions, .updater: .applications

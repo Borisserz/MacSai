@@ -179,6 +179,8 @@ struct ContentView: View {
             MailAttachmentsView()
         case .trashBins:
             TrashBinsView()
+        case .diskHogs:
+            DiskHogsView()
         case .projectJunk:
             ProjectJunkView()
         case .cleanHistory:
