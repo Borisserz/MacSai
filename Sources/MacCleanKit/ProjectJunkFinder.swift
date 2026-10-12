@@ -71,7 +71,7 @@ public enum ProjectJunkFinder {
     private static let podsMarkers: Set<String> = ["Podfile"]
 
     public static func find(nodes: [ProjectTreeNode]) -> [ProjectJunkItem] {
-        let byPath = Dictionary(uniqueKeysWithValues: nodes.map { ($0.path, $0) })
+        let byPath = Dictionary(nodes.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         var candidates: [ProjectJunkItem] = []
 
         for node in nodes {
@@ -126,6 +126,9 @@ public enum ProjectJunkFinder {
         case "build" where !siblings.isDisjoint(with: gradleMarkers):
             return .gradleBuild
         case ".venv", "venv":
+            // pyvenv.cfg is written by every venv/virtualenv; a folder that
+            // merely happens to be called "venv" does not have one.
+            guard node.childNames.contains("pyvenv.cfg") else { return nil }
             return siblings.isDisjoint(with: pythonMarkers) ? nil : .pythonVenv
         case "Pods" where !siblings.isDisjoint(with: podsMarkers):
             return .cocoaPods

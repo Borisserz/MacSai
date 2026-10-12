@@ -5,9 +5,48 @@ import MacCleanKit
 public struct ProjectJunkScanner: Sendable {
     public init() {}
 
+    /// Junk folder names: listed when a project marker sits beside them, and
+    /// never descended into (they can hold hundreds of thousands of files).
+    static let junkNames: Set<String> = [
+        "node_modules", "target", "build", "dist", ".next", "Pods", ".venv", "venv",
+    ]
+    /// Hidden folders that can be junk. Every other hidden folder (.git,
+    /// .cache, ...) is skipped during the walk.
+    private static let hiddenJunkNames: Set<String> = [".next", ".venv"]
+
     public func scan(root: URL, maxDepth: Int = 6) -> [ProjectJunkItem] {
+        guard Self.isAllowedRoot(root) else { return [] }
         let nodes = collectNodes(root: root, maxDepth: maxDepth)
-        return ProjectJunkFinder.find(nodes: nodes)
+        // Size only the matches, never every folder on the way down.
+        return ProjectJunkFinder.find(nodes: nodes).compactMap { item in
+            if Task.isCancelled { return nil }
+            return ProjectJunkItem(
+                path: item.path,
+                projectPath: item.projectPath,
+                kind: item.kind,
+                bytes: Self.directoryBytes(URL(filePath: item.path, directoryHint: .isDirectory)),
+                projectModified: item.projectModified
+            )
+        }
+    }
+
+    /// Refuses roots where a "build" or "target" folder belongs to the OS or
+    /// to apps rather than to the user's own projects.
+    static func isAllowedRoot(_ root: URL) -> Bool {
+        let path = normalized(root.resolvingSymlinksInPath())
+        if path == "/" { return false }
+        let home = normalized(FileManager.default.homeDirectoryForCurrentUser)
+        let forbidden = ["/System", "/Library", "/Applications", "/usr", "/bin", "/sbin",
+                         "/opt", home + "/Library"]
+        return !forbidden.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    /// Paths without a trailing slash, so a child's `deletingLastPathComponent`
+    /// matches its parent's key. Directory URLs from the enumerator end in "/".
+    static func normalized(_ url: URL) -> String {
+        var path = url.standardizedFileURL.path(percentEncoded: false)
+        while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+        return path
     }
 
     public func asScanResults(_ items: [ProjectJunkItem]) -> [ScanResult] {
@@ -32,62 +71,57 @@ public struct ProjectJunkScanner: Sendable {
 
     private func collectNodes(root: URL, maxDepth: Int) -> [ProjectTreeNode] {
         let fm = FileManager.default
+        let home = Self.normalized(fm.homeDirectoryForCurrentUser)
         guard let enumerator = fm.enumerator(
             at: root,
-            includingPropertiesForKeys: [
-                .isDirectoryKey, .contentModificationDateKey, .totalFileAllocatedSizeKey,
-            ],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey],
+            options: [.skipsPackageDescendants]
         ) else { return [] }
 
         var nodes: [ProjectTreeNode] = []
         // Include the root itself so project markers at the top level work.
-        if let rootNode = node(for: root, fm: fm) {
-            nodes.append(rootNode)
-        }
+        nodes.append(node(path: Self.normalized(root), url: root, fm: fm))
 
         while let url = enumerator.nextObject() as? URL {
+            if Task.isCancelled { return [] }
+            let name = url.lastPathComponent
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            // Symlinks are never followed or listed: trashing one would only
+            // move the link, and following one could leave the chosen folder.
+            guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
+            let path = Self.normalized(url)
+            if path == home + "/Library" || (name.hasPrefix(".") && !Self.hiddenJunkNames.contains(name)) {
+                enumerator.skipDescendants()
+                continue
+            }
             if enumerator.level > maxDepth {
                 enumerator.skipDescendants()
                 continue
             }
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
-            guard values?.isDirectory == true else { continue }
-            if let n = node(for: url, fm: fm) {
-                nodes.append(n)
-                // Do not descend into regenerable junk — it can be huge.
-                let name = url.lastPathComponent
-                if ["node_modules", "target", "build", "dist", ".next", "Pods", ".venv", "venv"].contains(name) {
-                    enumerator.skipDescendants()
-                }
+            nodes.append(node(path: path, url: url, fm: fm))
+            if Self.junkNames.contains(name) {
+                enumerator.skipDescendants()
             }
         }
         return nodes
     }
 
-    private func node(for url: URL, fm: FileManager) -> ProjectTreeNode? {
-        let path = url.path(percentEncoded: false)
+    private func node(path: String, url: URL, fm: FileManager) -> ProjectTreeNode {
         let children = (try? fm.contentsOfDirectory(atPath: path)) ?? []
-        let values = try? url.resourceValues(forKeys: [
-            .contentModificationDateKey, .totalFileAllocatedSizeKey,
-        ])
-        let bytes = directoryBytes(url)
-        return ProjectTreeNode(
-            path: path,
-            bytes: bytes,
-            modified: values?.contentModificationDate,
-            childNames: children
-        )
+        let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        return ProjectTreeNode(path: path, bytes: 0, modified: modified, childNames: children)
     }
 
-    private func directoryBytes(_ url: URL) -> UInt64 {
+    /// Counts hidden files too: pnpm keeps the whole store in node_modules/.pnpm.
+    static func directoryBytes(_ url: URL) -> UInt64 {
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else { return 0 }
         var total: UInt64 = 0
         for case let fileURL as URL in enumerator {
+            if Task.isCancelled { break }
             let values = try? fileURL.resourceValues(forKeys: [
                 .totalFileAllocatedSizeKey, .isRegularFileKey,
             ])

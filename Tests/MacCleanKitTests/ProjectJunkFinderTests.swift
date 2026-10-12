@@ -12,7 +12,7 @@ final class ProjectJunkFinderTests: XCTestCase {
             dir("\(root)/api", children: ["Cargo.toml", "target", "src"]),
             dir("\(root)/api/target", bytes: 900, children: ["debug"]),
             dir("\(root)/py", children: ["pyproject.toml", ".venv"]),
-            dir("\(root)/py/.venv", bytes: 300, children: ["bin"]),
+            dir("\(root)/py/.venv", bytes: 300, children: ["bin", "pyvenv.cfg"]),
             dir("\(root)/android", children: ["build.gradle", "build"]),
             dir("\(root)/android/build", bytes: 40, children: ["outputs"]),
             dir("\(root)/java", children: ["pom.xml", "target"]),
@@ -78,7 +78,9 @@ final class ProjectJunkFinderTests: XCTestCase {
     func testPythonVenvRequiresAPythonMarker() {
         let nodes = [
             dir("/Code/tool", children: ["requirements.txt", "venv"]),
-            dir("/Code/tool/venv", bytes: 12, children: ["bin"]),
+            dir("/Code/tool/venv", bytes: 12, children: ["bin", "pyvenv.cfg"]),
+            dir("/Code/docs", children: ["requirements.txt", "venv"]),
+            dir("/Code/docs/venv", bytes: 12, children: ["notes.md"]),
         ]
         let found = ProjectJunkFinder.find(nodes: nodes)
         XCTAssertEqual(found.map(\.kind), [.pythonVenv])
